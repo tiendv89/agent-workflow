@@ -1,0 +1,45 @@
+feature_id: FEATURE-001
+title: Example feature
+
+feature_status: in_tdd
+current_stage: technical_design
+next_action: Revise technical design and resubmit for approval.
+
+stages:
+  product_spec:
+    review_status: approved
+    reviewed_by: reviewer@example.com
+    reviewed_at: 2026-01-01T00:00:00Z
+    review_comment: null
+    review_history: []
+  technical_design:
+    review_status: rejected
+    reviewed_by: reviewer@example.com
+    reviewed_at: 2026-01-01T01:00:00Z
+    review_comment: Missing dependency analysis
+    review_history: []
+  tasks:
+    review_status: draft
+    reviewed_by: null
+    reviewed_at: null
+    review_comment: null
+    review_history: []
+  handoff:
+    review_status: draft
+    reviewed_by: null
+    reviewed_at: null
+    review_comment: null
+    review_history: []
+
+history:
+  - action: rejected
+    stage: technical_design
+    by: reviewer@example.com
+    at: 2026-01-01T01:00:00Z
+    reason: Missing dependency analysis
+
+revalidation:
+  product_spec_required: false
+  technical_design_required: false
+  tasks_required: false
+  deployment_checklist_required: false

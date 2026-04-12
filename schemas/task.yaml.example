@@ -1,0 +1,28 @@
+id: T1
+title: Example task
+repo: project-A-api
+role: backend_engineer
+status: ready
+depends_on: []
+blocked_reason: null
+branch: feature/FEATURE-001-T1
+
+execution:
+  actor_type: agent
+  last_updated_by: null
+  last_updated_at: null
+
+pr:
+  url: ""
+  status: not_created
+
+subtasks:
+  - note: Draft endpoint contract
+    by: tech_lead
+    at: 2026-01-01T00:00:00Z
+
+log:
+  - action: started
+    by: backend-agent-01
+    at: 2026-01-01T01:00:00Z
+    note: start-implementation completed successfully.
