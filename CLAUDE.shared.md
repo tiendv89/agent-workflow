@@ -166,6 +166,18 @@ Rules:
 - `role_skill_overrides` is required whenever `technical_skills/` is non-empty
 - Do not list workflow skills here — only technical skills belong in `role_skill_overrides`
 
+## Product-spec phase write boundary
+
+During the `product_spec` stage, agents must not write or modify any file outside the feature's `product-spec.md`.
+
+If workspace-level changes are discovered as needed (e.g. missing repo entries, config typos, new skills, rule updates), the agent must **stop and list them explicitly for the human** instead of applying them. The human decides whether to apply them before or after the product spec is approved.
+
+Examples of changes that must be surfaced, not applied:
+- Edits to `workspace.yaml`, `CLAUDE.md`, `.env`, `.env.template`
+- Creating or modifying skills under `technical_skills/`
+- Registering new repos or roles
+- Any file outside `docs/features/<feature_id>/product-spec.md`
+
 ## Shell command permission policy
 
 The assistant may run read-only inspection commands without asking first when working inside a project repository or workspace.
