@@ -144,6 +144,7 @@ role_skill_overrides:
   backend_engineer:
     enabled_skills:
       - go-best-practices
+      - postgres-best-practices
   frontend_engineer:
     enabled_skills:
       - nextjs-best-practices
