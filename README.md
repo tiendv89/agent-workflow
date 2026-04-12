@@ -19,15 +19,28 @@ Recommended layout:
   /project-B
 ```
 
+## Getting started (new users)
+
+After cloning, run bootstrap once to make the workflow skills available in Claude Code:
+
+```bash
+bash scripts/bootstrap.sh
+```
+
+Then open the `workflow/` folder in Claude Code. The `init-workspace` skill and all other workflow skills will be ready to use.
+
+## Project skill installation
+
 Projects consume shared skills through:
 
 ```text
 /workspace/<project>/.claude/skills
 ```
 
-which should be symlinked from:
+Symlinks are installed per-project by running:
 
-```text
-/workspace/workflow/workflow_skills
-/workspace/workflow/technical_skills
+```bash
+/workspace/workflow/scripts/install.sh <project-root>
 ```
+
+This links both `workflow_skills/` and `technical_skills/` into the project.
