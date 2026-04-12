@@ -143,13 +143,18 @@ Example:
 role_skill_overrides:
   backend_engineer:
     enabled_skills:
-      - go-backend
+      - go-best-practices
   frontend_engineer:
     enabled_skills:
-      - nextjs-frontend
+      - nextjs-best-practices
+      - typescript-best-practices
+      - react-native-mobile-engineer-skill
+      - browser-qa-frontend
+      - heroui-react
   data_engineer:
     enabled_skills:
       - python-data
+      - python-best-practices
       - airflow-3
 ```
 

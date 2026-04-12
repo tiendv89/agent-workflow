@@ -1,5 +1,5 @@
 ---
-name: next-frontend
+name: nextjs-best-practices
 description: Apply Next.js frontend engineering conventions. Next.js best practices - file conventions, RSC boundaries, data patterns, async APIs, metadata, error handling, route handlers, image/font optimization, bundling
 ---
 

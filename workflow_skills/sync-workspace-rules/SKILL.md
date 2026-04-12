@@ -48,13 +48,9 @@ After syncing rules, verify that:
 <project_root>/.claude/skills/
 ```
 
-is a real directory and contains per-skill symlinks to:
+is a real directory (not a symlink itself) and contains per-skill symlinks where **each symlink target must resolve to a directory** (a skill folder), not a file.
 
-```text
-<WORKSPACE_ROOT>/workflow/workflow_skills/
-```
-
-If missing or broken, invoke:
+Always invoke install.sh unconditionally to ensure symlinks are correct:
 
 ```bash
 <WORKSPACE_ROOT>/workflow/scripts/install.sh <project_root>
@@ -78,7 +74,8 @@ If `role_skill_overrides` is absent and `technical_skills/` is non-empty, warn t
 - do not mutate project-specific rules
 - do not copy shared skills into the project
 - do not replace the entire `workflow_skills` directory with one symlink
-- use install.sh as the repair path for per-skill linkage
+- do not create symlinks that point to files — every per-skill symlink must point to a directory
+- use install.sh as the repair path for per-skill linkage; never manually create or repair symlinks
 - if `WORKSPACE_ROOT` is missing, require the user to answer with the local workspace root path
 - if `project_root` cannot be validated, require the user to answer with the project folder path
 - every skill in `role_skill_overrides.*.enabled_skills` must exist under `workflow/technical_skills/`

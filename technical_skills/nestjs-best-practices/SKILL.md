@@ -1,5 +1,5 @@
 ---
-name: nestjs-backend
+name: nestjs-best-practices
 description: Apply NestJS backend engineering conventions. NestJS best practices and architecture patterns for building production-ready applications. This skill should be used when writing, reviewing, or refactoring NestJS code to ensure proper patterns for modules, dependency injection, security, and performance.
 ---
 

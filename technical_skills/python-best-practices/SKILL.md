@@ -1,6 +1,6 @@
 ---
-name: python-backend
-description: Apply Python backend engineering conventions. Pythonic idioms, PEP 8 standards, type hints, and best practices for building robust, efficient, and maintainable Python applications.
+name: python-best-practices
+description: Pythonic idioms, PEP 8 standards, type hints, and best practices for building robust, efficient, and maintainable Python applications.
 ---
 
 # Python Development Patterns

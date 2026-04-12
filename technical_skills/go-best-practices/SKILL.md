@@ -1,6 +1,6 @@
 ---
-name: go-backend
-description: Apply Go backend engineering conventions. Idiomatic Go patterns, best practices, and conventions for building robust, efficient, and maintainable Go applications.
+name: go-best-practices
+description: Idiomatic Go patterns, best practices, and conventions for building robust, efficient, and maintainable Go applications.
 ---
 
 # Go Development Patterns
