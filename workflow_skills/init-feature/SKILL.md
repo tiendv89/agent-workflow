@@ -3,6 +3,15 @@ name: init-feature
 description: Create a new feature folder using the canonical feature templates from the shared `workflow` root.
 ---
 
+## Environment
+
+### Required
+| Variable | Description |
+|---|---|
+| `WORKSPACE_ROOT` | Path to the root containing `workflow/templates/`; used to locate feature templates |
+
+---
+
 ## Task
 Create:
 - `product-spec.md`

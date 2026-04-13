@@ -3,21 +3,30 @@ name: sync-workspace-rules
 description: Synchronize the shared workflow rules from the canonical shared `workflow` root into a project `CLAUDE.md` and verify/repair per-skill shared symlinks.
 ---
 
-## Task
-Update the section between:
+## Environment
 
-<!-- BEGIN SHARED WORKFLOW RULES -->
-...
-<!-- END SHARED WORKFLOW RULES -->
+### Required
+| Variable | Description |
+|---|---|
+| `WORKSPACE_ROOT` | Path to root containing `workflow/CLAUDE.shared.md` and `workflow/scripts/install.sh` |
+
+---
+
+## Task
+
+Sync the shared workflow rules into `CLAUDE.md` and repair skill symlinks.
+
+**CLAUDE.md sync must use the Read and Edit tools only — never bash.** The shared section markers contain `<!--` which corrupts bash tool calls in Claude Code. There is no safe bash pattern for this; use file tools exclusively.
 
 ## Path resolution
+
 This skill requires:
 - workspace root path
 - project root path
 
 ### Workspace root resolution
 Resolution order:
-1. Read environment and look for `WORKSPACE_ROOT`
+1. Read `.env` in the project root and look for `WORKSPACE_ROOT`
 2. If present, use it
 3. If missing, ask the user for the local workspace root path explicitly
 
@@ -33,28 +42,59 @@ Resolution order:
 
 If project root cannot be validated, require the user to answer with the project folder path.
 
-## Source
-Shared rules source:
-- `<WORKSPACE_ROOT>/workflow/CLAUDE.shared.md`
+## CLAUDE.md sync — Read and Edit only
+
+### Step A — Read both files
+
+Use the Read tool (not bash) to read:
+1. `<project_root>/CLAUDE.md`
+2. `<WORKSPACE_ROOT>/CLAUDE.shared.md`
+
+### Step B — Compare
+
+Locate the shared section in `CLAUDE.md`: it is the block between the `BEGIN SHARED WORKFLOW RULES` and `END SHARED WORKFLOW RULES` marker lines (the markers are HTML comments but treat them as plain delimiters — do not search for them with bash).
+
+Compare the content between those markers against the full content of `CLAUDE.shared.md`.
+
+### Step C — Update if needed
+
+If the content differs, use the Edit tool to replace everything between the two marker lines with the current content of `CLAUDE.shared.md`. Preserve:
+- all content above the opening marker line
+- all content below the closing marker line
+
+If already in sync, skip the edit.
 
 ## Must preserve
 - project-local context above the shared section
 - project-specific additional rules below the shared section
 
-## Symlink verification
-After syncing rules, verify that:
+## Symlink repair
 
-```text
-<project_root>/.claude/skills/
-```
+Two actions — run them in order. Do not skip either even if things appear healthy.
 
-is a real directory (not a symlink itself) and contains per-skill symlinks where **each symlink target must resolve to a directory** (a skill folder), not a file.
+### Action 1 — Run repair-skills.sh
 
-Always invoke install.sh unconditionally to ensure symlinks are correct:
+Run this single command. It handles broken symlink removal, install.sh, and git untracking in one pass:
 
 ```bash
-<WORKSPACE_ROOT>/workflow/scripts/install.sh <project_root>
+<WORKSPACE_ROOT>/scripts/repair-skills.sh <project_root>
 ```
+
+Do not reconstruct these steps manually. The script is the canonical repair path.
+
+### Action 2 — Write `.claude/skills/.gitignore`
+
+Use the Write tool to create or overwrite `<project_root>/.claude/skills/.gitignore` with exactly:
+
+```
+# Shared skill symlinks are managed by workflow/scripts/install.sh — do not commit them.
+# Symlinks are git blobs, caught by *. Real local skill directories are trees, preserved by !*/.
+*
+!*/
+!.gitignore
+```
+
+This prevents all current and future symlinks from being committed. Write it unconditionally — do not check whether it already exists first.
 
 ## role_skill_overrides verification
 
@@ -75,7 +115,9 @@ If `role_skill_overrides` is absent and `technical_skills/` is non-empty, warn t
 - do not copy shared skills into the project
 - do not replace the entire `workflow_skills` directory with one symlink
 - do not create symlinks that point to files — every per-skill symlink must point to a directory
-- use install.sh as the repair path for per-skill linkage; never manually create or repair symlinks
+- use `repair-skills.sh` as the single repair command — do not reconstruct its steps manually
+- after running `repair-skills.sh`, always write `.claude/skills/.gitignore` with the Write tool — do not skip this even if the file exists
+- do not use bash to check or write `.gitignore` — use the Write tool only
 - if `WORKSPACE_ROOT` is missing, require the user to answer with the local workspace root path
 - if `project_root` cannot be validated, require the user to answer with the project folder path
 - every skill in `role_skill_overrides.*.enabled_skills` must exist under `workflow/technical_skills/`

@@ -3,6 +3,31 @@ name: resolve-project-env
 description: Resolve workflow-relevant environment values from the project `.env` file before any repo, git, or SSH operation.
 ---
 
+## Environment
+
+### Required
+| Variable | Description |
+|---|---|
+| `WORKSPACE_ROOT` | Root that contains `workflow/` and all project folders |
+| `GIT_AUTHOR_NAME` | Git commit identity; used as approval actor name |
+| `GIT_AUTHOR_EMAIL` | Referenced directly in `workspace.yaml` as `actor_source` |
+| `GITHUB_ACCOUNT` | GitHub username or org; required for PR creation and SSH remote URLs |
+| `SSH_KEY_PATH` | SSH private key path; must be explicit — do not assume a default |
+
+### Required per repo (from `workspace.yaml` repos list)
+| Variable pattern | Description |
+|---|---|
+| `<REPO_ID_UPPER>_LOCAL_PATH` | Filesystem path to the local clone of each repo |
+
+### Optional
+| Variable | Default | Description |
+|---|---|---|
+| `SKIP_STAGING` | `false` | Set to `true` if project has no staging environment |
+
+Base branches are declared per-repo in `workspace.yaml -> repos[].base_branch`, not in `.env`. There is no global default.
+
+---
+
 ## Purpose
 Provide one shared environment-resolution contract for all workflow skills.
 

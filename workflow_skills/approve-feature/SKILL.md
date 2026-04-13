@@ -3,6 +3,15 @@ name: approve-feature
 description: Approve a workflow stage and move state forward deterministically.
 ---
 
+## Environment
+
+### Required (implicit — via `workspace.yaml` actor_source)
+| Variable | Description |
+|---|---|
+| `GIT_AUTHOR_EMAIL` | Written as the approval actor; workspace.yaml uses `actor_source: env:GIT_AUTHOR_EMAIL` |
+
+---
+
 ## Must
 - update the correct stage review state
 - record actor

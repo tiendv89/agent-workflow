@@ -71,7 +71,23 @@ Your job is to:
 - Do not assume every library or integration is equally mature across architecture modes
 - Call out architecture-sensitive dependencies or migration risks when relevant
 
-### 8. Expo / tooling awareness
+### 8. Analytics event tracking
+
+- All analytics event names must be defined in a dedicated constants file as an exported enum (e.g., `lib/analytics/events.ts` → `AnalyticsEvent`).
+- Never pass a raw string literal to `trackEvent`. Always use the enum member.
+- The `trackEvent` function signature must accept `AnalyticsEvent`, not `string`.
+- When adding a new event, add it to the enum file first, then instrument the call site.
+- If no enum file exists, create one before instrumenting any events.
+
+```typescript
+// ❌ raw string
+trackEvent("submit_trade", { asset, surface: "portfolio" });
+
+// ✅ enum member
+trackEvent(AnalyticsEvent.SubmitTrade, { asset, surface: "portfolio" });
+```
+
+### 9. Expo / tooling awareness
 - If the project uses Expo, respect Expo-first workflows and libraries
 - Prefer the existing project toolchain rather than mixing incompatible setup patterns
 - For release/build automation, align with the project's chosen toolchain

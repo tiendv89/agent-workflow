@@ -149,7 +149,7 @@ role_skill_overrides:
     enabled_skills:
       - nextjs-best-practices
       - typescript-best-practices
-      - react-native-mobile-engineer-skill
+      - react-native-mobile-engineer
       - browser-qa-frontend
       - heroui-react
   data_engineer:

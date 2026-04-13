@@ -144,6 +144,14 @@ See [self-hosting.md](./self-hosting.md) for:
 - Cache handlers for multi-instance ISR
 - What works vs needs extra setup
 
+## Analytics
+
+See [analytics.md](./analytics.md) for:
+- Event names must live in a dedicated enum file (`AnalyticsEvent`)
+- Never pass raw string literals to `trackEvent`
+- `trackEvent` signature must accept `AnalyticsEvent`, not `string`
+- Enum grouping conventions
+
 ## Debug Tricks
 
 See [debug-tricks.md](./debug-tricks.md) for:

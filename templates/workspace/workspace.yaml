@@ -55,14 +55,17 @@ repos:
   - id: project-A-api
     github: https://github.com/example/project-A-api.git
     local_path: env:PROJECT_A_API_LOCAL_PATH
+    base_branch: main
     owner_role: backend_engineer
 
   - id: project-A-web
     github: https://github.com/example/project-A-web.git
     local_path: env:PROJECT_A_WEB_LOCAL_PATH
+    base_branch: main
     owner_role: frontend_engineer
 
   - id: project-A-data
     github: https://github.com/example/project-A-data.git
     local_path: env:PROJECT_A_DATA_LOCAL_PATH
+    base_branch: main
     owner_role: data_engineer
