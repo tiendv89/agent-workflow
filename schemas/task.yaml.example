@@ -1,3 +1,12 @@
+# Lean per-task state file.
+#
+# Narrative (description, subtasks) lives in docs/features/<feature_id>/tasks.md
+# beside this directory. This YAML carries only machine-mutable state so agents
+# can update one task without contending on a shared file.
+#
+# Per-task state is the source of truth for: status, depends_on, branch,
+# execution, pr, log. Never duplicate these into tasks.md.
+
 id: T1
 title: Example task
 repo: project-A-api
@@ -16,12 +25,11 @@ pr:
   url: ""
   status: not_created
 
-subtasks:
-  - note: Draft endpoint contract
+log:
+  - action: created
     by: tech_lead
     at: 2026-01-01T00:00:00Z
-
-log:
+    note: Task drafted.
   - action: started
     by: backend-agent-01
     at: 2026-01-01T01:00:00Z
