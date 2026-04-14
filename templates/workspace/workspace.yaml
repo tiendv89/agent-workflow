@@ -38,21 +38,33 @@ model_policy:
 automation:
   enabled: true
 
+# The management repo stores all task YAMLs, feature docs, and CLAUDE.md.
+# It must always be the first entry in repos[] and must use id: management-repo.
+management_repo: management-repo
+
 repos:
+  # ── Management repo (required, always first, id must be management-repo) ──
+  - id: management-repo
+    github: git@github.com:<github-account>/<workspace-id>.git
+    local_path: env:MANAGEMENT_REPO_LOCAL_PATH
+    base_branch: main
+    owner_role: tech_lead
+
+  # ── Implementation repos ──
   - id: project-A-api
-    github: https://github.com/example/project-A-api.git
+    github: git@github.com:example/project-A-api.git
     local_path: env:PROJECT_A_API_LOCAL_PATH
     base_branch: main
     owner_role: backend_engineer
 
   - id: project-A-web
-    github: https://github.com/example/project-A-web.git
+    github: git@github.com:example/project-A-web.git
     local_path: env:PROJECT_A_WEB_LOCAL_PATH
     base_branch: main
     owner_role: frontend_engineer
 
   - id: project-A-data
-    github: https://github.com/example/project-A-data.git
+    github: git@github.com:example/project-A-data.git
     local_path: env:PROJECT_A_DATA_LOCAL_PATH
     base_branch: main
     owner_role: data_engineer

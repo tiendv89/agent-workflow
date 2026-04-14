@@ -54,6 +54,9 @@ Compare `.env.template` against `.env`. Any variable key present in `.env` but m
 Verify:
 - `model_policy` section exists with per-phase `allowed` + `default` entries for: `implementation`, `self_review`, `pr_description`, `suggested_next_step`.
 - At least one repo is declared under `repos:`.
+- `management_repo: management-repo` field exists at the top level.
+- `repos[0].id` is exactly `management-repo` — the management repo must be the first entry.
+- A repo entry with `id: management-repo` exists and has `github`, `local_path`, and `base_branch` set.
 
 For each issue found: report it and offer to fix it interactively.
 
@@ -136,7 +139,9 @@ Aggregated from all skill `## Environment` sections. These values are load-beari
 | `GIT_AUTHOR_EMAIL` | `resolve-project-env`, `approve-feature`, `reject-feature` | Directly referenced as `actor_source: env:GIT_AUTHOR_EMAIL` in workspace.yaml |
 | `GITHUB_ACCOUNT` | `resolve-project-env`, `pr-create` | Required for PR creation and SSH remote URLs |
 | `SSH_KEY_PATH` | `resolve-project-env`, `pr-create`, `start-implementation` | Required for SSH-based repo access; do not assume `~/.ssh/id_rsa` |
-| At least one repo | `start-implementation` | A workspace with no repos cannot run any git-based workflow |
+| Management repo (`repos[0].id: management-repo`) | `start-implementation`, `init-workspace` | The management repo stores all task state; must be first in repos[] with the fixed id |
+| `management_repo: management-repo` in workspace.yaml | `start-implementation` | Explicit pointer so workflow skills can locate task state without array-position logic |
+| `MANAGEMENT_REPO_LOCAL_PATH` | `resolve-project-env`, `start-implementation` | Local path to the management repo clone; required for claim commits |
 | `<REPO_ID_UPPER>_LOCAL_PATH` per repo | `resolve-project-env`, `start-implementation` | Required for any git task execution |
 | `base_branch` per repo | `start-implementation`, `pr-create` | Per-repo base branch declared in `workspace.yaml`; no global default |
 | `model_policy` per-phase model allowlist | `init-workspace` | workspace.yaml centralized model cost control — defines allowed models + default per phase |
@@ -194,17 +199,35 @@ Both are required.
 
 ### Phase 5 — Repository setup
 
-A workspace needs at least one repo. Ask:
+Every workspace requires a management repo as its first and mandatory repo entry. The management repo stores all task YAMLs, feature docs, and `CLAUDE.md` — it is the authoritative record of task state.
 
-_"How many repositories does this project have? (You can add more later, but at least one is needed now.)"_
+**Step 5a — Management repo (always first, id is fixed)**
 
-For each repo (starting with the first):
+The first repo is always the management repo. Its `id` is always `management-repo` — do not ask the user to choose an ID. Ask only:
+
+1. **GitHub URL** — SSH URL of the management repo, e.g. `git@github.com:mycompany/my-project.git`
+2. **Local path value** — the filesystem path to the local clone (can be left blank for now)
+3. **Base branch** — required, no default. Ask explicitly; do not assume `main`.
+
+Auto-derive the env var name as `MANAGEMENT_REPO_LOCAL_PATH`.
+
+After collecting, set `management_repo: management-repo` in `workspace.yaml` and write the entry as `repos[0]`.
+
+**Validation**: reject any workspace.yaml where `repos[0].id` is not `management-repo`. If a user tries to set a different ID for the first repo, explain the convention and correct it.
+
+**Step 5b — Implementation repos**
+
+Ask:
+
+_"How many implementation repositories does this project have? (You can add more later.)"_
+
+For each additional repo:
 
 1. **Repo ID** — short slug, e.g. `my-project-api`
 2. **GitHub URL** — full SSH URL, e.g. `git@github.com:mycompany/my-project-api.git`
 3. **Local path env var name** — auto-suggest based on repo ID in uppercase, e.g. `MY_PROJECT_API_LOCAL_PATH`
-4. **Local path value** — the actual local filesystem path to the repo clone (can be left blank for now; remind user they must fill it in before running git tasks)
-5. **Base branch** — the branch feature branches target for this repo (e.g. `main`, `master`, `develop`). Required — no default. Ask the user explicitly; do not assume `main`.
+4. **Local path value** — the actual local filesystem path to the repo clone (can be left blank for now)
+5. **Base branch** — required, no default. Ask explicitly.
 6. **Owner role** — which role owns this repo: `backend_engineer`, `frontend_engineer`, or `data_engineer`
 
 Collect all repos before moving to the next phase.
@@ -292,10 +315,19 @@ This ensures shared symlinks are never committed while real workspace-specific s
 
 ## workspace.yaml — repos section
 
-Generate one entry per collected repo:
+The management repo is always first with the fixed id `management-repo`. Implementation repos follow.
 
 ```yaml
+management_repo: management-repo
+
 repos:
+  # Management repo — always first, id is always management-repo
+  - id: management-repo
+    github: <github-url>
+    local_path: env:MANAGEMENT_REPO_LOCAL_PATH
+    base_branch: <base-branch>   # required; no default
+
+  # Implementation repos
   - id: <repo-id>
     github: <github-url>
     local_path: env:<LOCAL_PATH_ENV_VAR>

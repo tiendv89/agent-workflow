@@ -62,6 +62,16 @@ Features follow this lifecycle:
 - Both humans and agents append task log entries when they mutate task state
 - Marking a task `done` requires a human log entry
 
+## Task file scope
+
+An agent executing task T_x must only write to `T_x.yaml` in the management repo. Writing to any other task file (`T_y.yaml` where y ≠ x) is forbidden — even for valid reasons such as schema migrations, audit entries, or bulk updates.
+
+Cross-cutting changes to multiple task files must be:
+- Planned as a dedicated task with a single executor.
+- Executed with no concurrent runners touching any of the affected files.
+
+This rule preserves the concurrency model: each task YAML is an independent, contention-free write target. The moment an agent writes to a sibling task file, that guarantee breaks.
+
 ## Dependency rules
 
 - Every task must define `depends_on` (use `[]` if none)
@@ -112,6 +122,17 @@ Typical required values:
 - `GIT_AUTHOR_EMAIL`
 - `GITHUB_ACCOUNT`
 - `SSH_KEY_PATH`
+
+## Management repo
+
+The management repo is the repository that stores the workspace's feature docs, task YAML files (`docs/features/<feature_id>/tasks/`), and `CLAUDE.md`. It is the authoritative record of task state and is separate from (or may overlap with) implementation repos.
+
+Rules:
+- Every workspace must declare exactly one management repo in `workspace.yaml` via `management_repo: <repo_id>`, where the value matches a `repos[].id` entry.
+- The management repo is a required field. Workflow skills that operate on task state must resolve it before proceeding.
+- **Claim commit rule**: before an agent begins implementation work in a target repo, it must commit and push the claim (status change to `in_progress` in `T_x.yaml`) to the management repo on the task's feature branch. If the push is rejected (non-fast-forward), the agent must stop — another agent won the claim.
+- The management repo commit is the canonical record of task ownership. Without it, the claim is not valid and the agent must not proceed with implementation.
+- Agents may only modify their own task file (`T_x.yaml`) in the management repo. See "Task file scope" rule.
 
 ## Git / SSH rules
 
