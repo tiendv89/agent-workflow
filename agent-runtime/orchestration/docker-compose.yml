@@ -1,0 +1,67 @@
+# Agent-runtime — production supervisor loop (docker-compose)
+#
+# Runs a single agent on a 5-minute cycle using a docker:cli supervisor
+# container that restarts the agent image after each activation.
+#
+# This pattern is suitable for a single Linux VM or a local server.
+# For multi-agent concurrency, run this compose file on multiple hosts
+# or use the Kubernetes CronJob template instead.
+#
+# For local *testing* with 2 agents, see orchestration/local/docker-compose.yml.
+#
+# Usage (from workflow/ root):
+#   docker compose -f agent-runtime/orchestration/docker-compose.yml up -d
+#
+# Requirements:
+#   - Create agent.yaml in this directory (cp local/agent.yaml.example agent.yaml)
+#   - Create .env in this directory (cp local/.env.example .env and fill in values)
+
+name: agent-runtime-production
+
+services:
+  supervisor:
+    image: docker:27-cli
+    restart: always
+    env_file: .env
+    environment:
+      # Passed through to each docker run invocation via the shell loop below.
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      GIT_AUTHOR_NAME: "${GIT_AUTHOR_NAME:-Agent Bot}"
+      GIT_AUTHOR_EMAIL: "${GIT_AUTHOR_EMAIL}"
+    volumes:
+      # Docker socket — supervisor needs it to launch the agent container
+      - /var/run/docker.sock:/var/run/docker.sock
+      # agent.yaml — read by each agent run
+      - ./agent.yaml:/etc/agent/agent.yaml:ro
+      # SSH keys
+      - "${SSH_KEY_DIR:-${HOME}/.ssh}:/etc/agent/ssh:ro"
+      # Shared workspace clones volume (named, persists between activations)
+      - workspaces:/agent/data
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        IMAGE="${AGENT_IMAGE:-ghcr.io/tiendv89/agent-runtime:latest}"
+
+        echo "Supervisor started. Pulling image: $${IMAGE}"
+        docker pull "$${IMAGE}"
+
+        while true; do
+          echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Starting agent activation..."
+          docker run --rm \
+            -e ANTHROPIC_API_KEY="$${ANTHROPIC_API_KEY}" \
+            -e GIT_AUTHOR_NAME="$${GIT_AUTHOR_NAME}" \
+            -e GIT_AUTHOR_EMAIL="$${GIT_AUTHOR_EMAIL}" \
+            -e SSH_KEY_PATH=/agent/ssh/id_rsa \
+            -v /etc/agent/agent.yaml:/agent/agent.yaml:ro \
+            -v "$${SSH_KEY_DIR:-$${HOME}/.ssh}:/agent/ssh:ro" \
+            -v workspaces:/agent/data \
+            "$${IMAGE}" || true   # non-zero exit is logged, not fatal to the loop
+          echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Activation complete. Sleeping 300s..."
+          sleep 300
+        done
+
+volumes:
+  workspaces:
+    driver: local

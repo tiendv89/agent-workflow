@@ -1,0 +1,89 @@
+# Agent-runtime — GitHub Actions scheduled activation
+#
+# Runs one agent activation cycle on a GHA-hosted runner every 5 minutes.
+# Suitable for very small deployments where a dedicated host isn't worth it.
+#
+# Limitations vs. Kubernetes / systemd:
+#   - GHA scheduled workflows are not guaranteed to fire exactly on schedule
+#     (can be delayed by queue pressure, especially on free plans).
+#   - Workspace clones are NOT persisted between runs (Actions cache is used
+#     as a best-effort warm-up but is not atomic).
+#   - No PVC equivalent — first run each day re-clones everything.
+#   - Minimum schedule is every 5 minutes; sub-minute cadence is not possible.
+#
+# Required repository secrets (Settings → Secrets → Actions):
+#   ANTHROPIC_API_KEY   — Anthropic API key
+#   AGENT_SSH_KEY       — SSH private key (full PEM content, no passphrase)
+#   AGENT_YAML          — Full content of agent.yaml
+#   GIT_AUTHOR_EMAIL    — Email recorded in task log entries
+
+name: Agent runtime activation
+
+on:
+  schedule:
+    # Every 5 minutes. GitHub may delay by several minutes under load.
+    - cron: "*/5 * * * *"
+  # Allow manual trigger for testing and emergency activation.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Set agent.yaml enabled: false (dry run — bootstrap only)"
+        required: false
+        default: "false"
+
+jobs:
+  activate:
+    name: Run one activation cycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15   # hard cap — one cycle should never exceed this
+
+    steps:
+      - name: Pull agent-runtime image
+        run: docker pull ghcr.io/tiendv89/agent-runtime:latest
+
+      - name: Write SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.AGENT_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          # Add github.com to known_hosts to avoid interactive prompt
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Write agent.yaml
+        run: |
+          mkdir -p /tmp/agent
+          printf '%s\n' "${{ secrets.AGENT_YAML }}" > /tmp/agent/agent.yaml
+          # Override enabled: false for dry-run invocations
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            sed -i 's/^enabled:.*/enabled: false/' /tmp/agent/agent.yaml
+          fi
+
+      - name: Restore workspace cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/workspaces
+          # Cache key is intentionally broad — we want cache hits across runs.
+          # The agent always does git fetch + reset --hard so stale data is safe.
+          key: agent-workspaces-${{ runner.os }}
+          restore-keys: |
+            agent-workspaces-
+
+      - name: Run agent
+        run: |
+          docker run --rm \
+            -e ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
+            -e GIT_AUTHOR_NAME="Agent Bot (GHA)" \
+            -e GIT_AUTHOR_EMAIL="${{ secrets.GIT_AUTHOR_EMAIL }}" \
+            -e SSH_KEY_PATH=/agent/ssh/id_rsa \
+            -v /tmp/agent/agent.yaml:/agent/agent.yaml:ro \
+            -v /tmp/workspaces:/agent/data \
+            -v ~/.ssh:/agent/ssh:ro \
+            ghcr.io/tiendv89/agent-runtime:latest
+
+      - name: Save workspace cache
+        # Always save so the next run gets a warm clone even if the agent exited non-zero.
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/workspaces
+          key: agent-workspaces-${{ runner.os }}

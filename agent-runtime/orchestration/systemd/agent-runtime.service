@@ -1,0 +1,57 @@
+# agent-runtime.service — one agent activation cycle via Docker.
+#
+# Managed by agent-runtime.timer (fires every 5 minutes).
+# Type=oneshot so systemd waits for the container to finish before
+# marking the unit active — this pairs correctly with the timer's
+# OnUnitActiveSec setting.
+#
+# Installation:
+#   sudo cp agent-runtime.service agent-runtime.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now agent-runtime.timer
+#
+# Logs:
+#   journalctl -u agent-runtime.service -f
+
+[Unit]
+Description=Agent Runtime — single activation cycle
+Documentation=https://github.com/tiendv89/agent-workflow/tree/main/agent-runtime
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+
+# Load secrets from a protected env file.
+# Create: sudo install -m 600 -o root /dev/null /etc/agent-runtime/env
+# Then add:  ANTHROPIC_API_KEY=sk-ant-...  GIT_AUTHOR_EMAIL=...  etc.
+EnvironmentFile=/etc/agent-runtime/env
+
+# Agent configuration lives at /etc/agent-runtime/agent.yaml
+# SSH key lives at /etc/agent-runtime/ssh/id_rsa  (mode 400, root-owned)
+
+ExecStart=/usr/bin/docker run --rm \
+    --name agent-runtime \
+    -e ANTHROPIC_API_KEY \
+    -e GIT_AUTHOR_NAME \
+    -e GIT_AUTHOR_EMAIL \
+    -e SSH_KEY_PATH=/agent/ssh/id_rsa \
+    -v /etc/agent-runtime/agent.yaml:/agent/agent.yaml:ro \
+    -v /etc/agent-runtime/ssh:/agent/ssh:ro \
+    -v agent-runtime-workspaces:/agent/data \
+    ghcr.io/tiendv89/agent-runtime:latest
+
+# Pull the latest image before each run so the host stays current.
+ExecStartPre=/usr/bin/docker pull ghcr.io/tiendv89/agent-runtime:latest
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=agent-runtime
+
+# The agent exits 0 on idle cycles and on kill-switch. Non-zero exits
+# (exit 2/3/4) are recorded in the journal but do not trigger a restart
+# (that is the timer's job).
+SuccessExitStatus=0 2 3 4
+
+[Install]
+WantedBy=multi-user.target
