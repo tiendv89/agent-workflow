@@ -69,6 +69,7 @@ Features follow this lifecycle:
   - its status is `ready`
   - all tasks in `depends_on` are `done`
 - This rule is enforced by `start-implementation`
+- **Auto-ready rule**: when a task is marked `done`, any task whose entire `depends_on` list is now satisfied must have its status advanced from `todo` to `ready`. The actor who marks the dependency `done` is responsible for applying this transition and appending a log entry to each affected task.
 
 ## Execution rules
 
@@ -158,6 +159,27 @@ Examples of changes that must be surfaced, not applied:
 - Creating or modifying skills under `technical_skills/`
 - Registering new repos or roles
 - Any file outside `docs/features/<feature_id>/product-spec.md`
+
+## CLAUDE.md edit policy
+
+Before editing `CLAUDE.md` in any project workspace, determine whether the change is **workspace-specific** or **common**.
+
+### Common change
+A rule that should apply to every workspace using this workflow (e.g. lifecycle rules, task structure, git conventions, environment resolution).
+
+**Do not edit `CLAUDE.md` directly.**
+
+Instead:
+1. Edit `$WORKSPACE_ROOT/CLAUDE.shared.md`
+2. Run `sync-workspace-rules` to propagate the change into `CLAUDE.md`
+
+### Workspace-specific change
+A rule that only applies to this one project (e.g. repo-specific conventions, stack-specific constraints, local team agreements).
+
+Edit the project-specific section of `CLAUDE.md` directly — the content above or below the shared section markers.
+
+### Uncertain
+If it is not clear whether the change is common or workspace-specific, **stop and ask the human** before making any edit.
 
 ## Shell command permission policy
 
