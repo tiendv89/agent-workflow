@@ -1,0 +1,48 @@
+# Agent configuration file.
+#
+# Each agent host reads this file at container start to determine what work
+# it is allowed to pick up and how much budget it may spend per task.
+#
+# This file intentionally omits agent identity, role, skills, and model
+# selection. Attribution is derived from GIT_AUTHOR_EMAIL in the host's
+# .env file. Model selection is driven by workspace.yaml model_policy
+# and optional per-task ### Model overrides in tasks.md.
+
+# Workspace repositories this agent watches for eligible tasks.
+# Each entry is an SSH URL to a workspace repo (not an implementation repo).
+# The agent clones/pulls these at every activation cycle and scans for
+# tasks whose repo is reachable from the watched workspace.
+watches:
+  - git@github.com:mycompany/workspace.git
+
+# Kill switch. When false, the agent exits 0 immediately after bootstrap
+# without scanning for work. Useful for draining an agent host gracefully.
+enabled: true
+
+# Maximum random jitter (in seconds) applied before a claim commit.
+# De-synchronises agents that fire from the same cron tick to reduce
+# push-rejection contention. Must be a non-negative integer.
+jitter_max_seconds: 15
+
+# Hard budget limits enforced per task activation.
+budget:
+  # Maximum tokens (input + output) the agent may consume on a single task.
+  # Positive integer. When exceeded between iterations, the agent aborts
+  # with blocked_reason: budget_exceeded.
+  max_tokens_per_task: 200000
+
+  # Maximum tool-use loop iterations per task. Positive integer.
+  # When reached, the agent aborts with blocked_reason: iteration_cap_exceeded.
+  max_iterations: 3
+
+  # Token budget reserved for the suggested_next_step synthesis that runs
+  # when the agent blocks. Positive integer. Drawn from a separate allowance
+  # so it does not compete with the main task budget.
+  suggested_next_step_max_tokens: 2000
+
+# Per-run log sink configuration.
+log_sink:
+  # Whether to write a JSONL event log for each task run.
+  # Path is deterministic: docs/<feature>/logs/T<n>_<ISO-start>.jsonl
+  # on the task's feature branch.
+  enabled: true

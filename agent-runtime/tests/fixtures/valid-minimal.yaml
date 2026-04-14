@@ -1,0 +1,10 @@
+watches:
+  - git@github.com:org/repo.git
+enabled: false
+jitter_max_seconds: 0
+budget:
+  max_tokens_per_task: 1
+  max_iterations: 1
+  suggested_next_step_max_tokens: 1
+log_sink:
+  enabled: false

@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "agent.yaml.schema",
+  "title": "Agent Configuration",
+  "description": "Configuration for a workflow agent instance. Omits identity, role, skills, and model selection — those are derived from GIT_AUTHOR_EMAIL, tasks.md, and workspace.yaml respectively.",
+  "type": "object",
+  "required": ["watches", "enabled", "jitter_max_seconds", "budget", "log_sink"],
+  "additionalProperties": false,
+  "properties": {
+    "watches": {
+      "type": "array",
+      "description": "SSH URLs of workspace repositories this agent watches for eligible tasks.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Kill switch. When false, agent exits 0 immediately without scanning for work."
+    },
+    "jitter_max_seconds": {
+      "type": "integer",
+      "description": "Maximum random jitter in seconds before a claim commit. De-synchronises concurrent agents.",
+      "minimum": 0
+    },
+    "budget": {
+      "type": "object",
+      "description": "Hard budget limits enforced per task activation.",
+      "required": ["max_tokens_per_task", "max_iterations", "suggested_next_step_max_tokens"],
+      "additionalProperties": false,
+      "properties": {
+        "max_tokens_per_task": {
+          "type": "integer",
+          "description": "Maximum tokens (input + output) the agent may consume on a single task.",
+          "minimum": 1
+        },
+        "max_iterations": {
+          "type": "integer",
+          "description": "Maximum tool-use loop iterations per task.",
+          "minimum": 1
+        },
+        "suggested_next_step_max_tokens": {
+          "type": "integer",
+          "description": "Token budget reserved for suggested_next_step synthesis when the agent blocks.",
+          "minimum": 1
+        }
+      }
+    },
+    "log_sink": {
+      "type": "object",
+      "description": "Per-run JSONL event log configuration.",
+      "required": ["enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether to write a JSONL event log for each task run."
+        }
+      }
+    }
+  }
+}
