@@ -123,6 +123,16 @@ Typical required values:
 - `GITHUB_ACCOUNT`
 - `SSH_KEY_PATH`
 
+## Figma MCP usage rule
+
+When `FIGMA_PERSONAL_ACCESS_TOKEN` is present in the project `.env` and `figma-mcp` is listed under the role's `enabled_skills`, agents must use the Figma MCP to read design context before implementing any UI.
+
+- Read the target Figma frame or component via the MCP **before** writing code.
+- Extract design tokens (colors, spacing, typography) from Figma variables — do not hardcode values that exist in Figma.
+- Derive component and prop names from the Figma component name.
+- If `FIGMA_PERSONAL_ACCESS_TOKEN` is missing, stop and ask the user to add it to `.env` (see `.env.template`).
+- Never skip Figma context when the token is available — guessing at design values is not acceptable.
+
 ## Management repo
 
 The management repo is the repository that stores the workspace's feature docs, task YAML files (`docs/features/<feature_id>/tasks/`), and `CLAUDE.md`. It is the authoritative record of task state and is separate from (or may overlap with) implementation repos.
@@ -168,6 +178,26 @@ At run-task time, the agent reads the declared skills and loads their `SKILL.md`
 
 See `tasks.md`'s `### Required skills` subsection as the source of truth for per-task capability.
 
+```yaml
+role_skill_overrides:
+  backend_engineer:
+    enabled_skills:
+      - go-best-practices
+      - postgres-best-practices
+  frontend_engineer:
+    enabled_skills:
+      - nextjs-best-practices
+      - typescript-best-practices
+      - react-native-mobile-engineer
+      - browser-qa-frontend
+      - heroui-react
+      - figma-mcp
+  data_engineer:
+    enabled_skills:
+      - python-data
+      - python-best-practices
+      - airflow-3
+```
 ## Narrative / state split
 
 Task YAML files (`tasks/T<n>.yaml`) contain only machine-mutable state: `status`, `depends_on`, `blocked_reason`, `branch`, `execution`, `pr`, `log`. Agents read and write these files.
