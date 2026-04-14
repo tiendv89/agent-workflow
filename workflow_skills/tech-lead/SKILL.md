@@ -88,7 +88,7 @@ This section is mandatory and must include a **per-task dependency diagram** —
 
 Required elements:
 - External decisions/dependencies (if any) listed at the top with a short unblock note.
-- Every task `T<n>` on its own line, annotated with its `(role)`.
+- Every task `T<n>` on its own line. Optionally annotate with a short descriptor (e.g. skill focus or repo) — but not with a role, since agents are full-stack.
 - Directly under each task, one or more indented `└── …` lines stating either:
   - `Can begin now — no blockers` — for tasks whose `depends_on` is empty.
   - `BLOCKED on T<n> (<reason>)` — one line per real blocker. Reasons must be concrete (e.g. "schema must be frozen", "SDK must be in place") — not just "T3 must be done".
@@ -101,23 +101,23 @@ Use this as a reference template (FARO-197 style — copy the shape, not the con
 D5: Confirm surface identifiers with Pye ──┐
 D6: Afonso updates Bet 2 / Nam scope      ──┘ both run immediately; low-effort; unblock before T4/T5
 
-T1 (data_engineer): Finalise event-tracking.md + analytics-conventions-v1.md
+T1: Finalise event-tracking.md + analytics-conventions-v1.md
   └── Can begin now — no blockers
   │
-T2 (frontend_engineer): Mixpanel SDK — voyager-interface
-T3 (frontend_engineer): Mixpanel SDK — voyager-mobile
+T2: Mixpanel SDK — voyager-interface
+T3: Mixpanel SDK — voyager-mobile
   └── T2 and T3 run in parallel
   └── Can begin now (use MIXPANEL_TOKEN=placeholder)
   │
-  T4 (frontend_engineer): Instrument 27 events — voyager-interface
-  T5 (frontend_engineer): Instrument 27 events — voyager-mobile
+  T4: Instrument 27 events — voyager-interface
+  T5: Instrument 27 events — voyager-mobile
       └── BLOCKED on T1 (finalised event-tracking.md)
       └── BLOCKED on T2/T3 respectively (SDK must be in place)
       └── BLOCKED on D5 (surface identifiers locked)
       └── T4 and T5 run in parallel
       │
-      T6 (tech_lead): Internal review + sign-off
-            └── T7 (tech_lead + product_owner): Publish + mark done
+      T6: Internal review + sign-off
+            └── T7: Publish + mark done
 ```
 
 Rules when producing the diagram:
@@ -159,6 +159,15 @@ Narrative only. Mirrors the FARO-197 style. Must contain:
 - Per task, one section:
   - `## T<n> — <Title>` heading
   - `### Description` — what the task accomplishes and why it fits the design
+  - `### Required skills` — one skill slug per bullet (`- <slug>`). Slugs must match directory names under `workflow/technical_skills/` (regex: `^[a-z0-9][a-z0-9-]*$`). Empty list is valid (no skill context needed). This subsection is **mandatory** for every task — omitting it is an authoring error caught by the eligibility matcher.
+  - `### Model overrides` (optional) — per-phase model allowlist that overrides workspace defaults from `workspace.yaml` `model_policy`. Only phases that differ from workspace defaults need to be listed. Grammar:
+    ```
+    ### Model overrides
+    <phase>:
+      allowed: [<model_id>, ...]
+      default: <model_id>
+    ```
+    Valid phases: `implementation`, `self_review`, `pr_description`, `suggested_next_step`. If this subsection is absent, workspace defaults apply for all phases.
   - `### Subtasks` — checklist items `- [ ]` / `- [x]`. These are planning notes + progress indicators the task-owning agent checks off as it works.
 
 Do **not** put `Status`, `Log`, `PR`, or any other machine-mutable field into `tasks.md`. Those live in the YAML.
@@ -170,7 +179,6 @@ Lean. Only machine-readable state. Must define:
 - `id`
 - `title` (short — matches the `tasks.md` section heading)
 - `repo`
-- `role`
 - `status`
 - `depends_on`
 - `blocked_reason`

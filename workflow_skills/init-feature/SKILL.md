@@ -28,3 +28,5 @@ Use:
 - subtasks remain inside the task file as checklist/log entries
 - subtasks do not have their own lifecycle status
 - do not create `deployment-checklist.md` too early
+- task YAML templates must not include a `role:` field — agents are full-stack
+- when generating a `tasks.md` template, include a `### Required skills` stub (empty list) under each `## T<n>` section

@@ -18,38 +18,25 @@ environments:
   production:
     enabled: true
 
-roles:
-  - product_owner
-  - uiux_designer
-  - tech_lead
-  - backend_engineer
-  - frontend_engineer
-  - data_engineer
-  - infra_engineer
-  - qa
-
-# Declare which technical_skills each automated role uses in this project.
-# Every skill listed must exist as a directory under workflow/technical_skills/.
-role_skill_overrides:
-  backend_engineer:
-    enabled_skills: []
-  frontend_engineer:
-    enabled_skills: []
-  data_engineer:
-    enabled_skills: []
+# Per-phase model allowlist — centralized cost control.
+# Agents use the merged default for each phase. Tasks can override
+# specific phases via ### Model overrides in tasks.md.
+model_policy:
+  implementation:
+    allowed: [claude-sonnet-4-6]          # models agents may use for code writing
+    default: claude-sonnet-4-6
+  self_review:
+    allowed: [claude-sonnet-4-6]          # model for reviewing own diff
+    default: claude-sonnet-4-6
+  pr_description:
+    allowed: [claude-haiku-4-5-20251001]  # model for PR summary (light)
+    default: claude-haiku-4-5-20251001
+  suggested_next_step:
+    allowed: [claude-haiku-4-5-20251001]  # model for blocked explanations (light)
+    default: claude-haiku-4-5-20251001
 
 automation:
   enabled: true
-  enabled_roles:
-    - backend_engineer
-    - frontend_engineer
-    - data_engineer
-  actor_type_defaults:
-    backend_engineer: agent
-    frontend_engineer: agent
-    data_engineer: agent
-    infra_engineer: human
-    qa: human
 
 repos:
   - id: project-A-api

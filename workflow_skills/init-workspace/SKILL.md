@@ -52,8 +52,7 @@ Compare `.env.template` against `.env`. Any variable key present in `.env` but m
 ### Check 4 — `workspace.yaml` integrity
 
 Verify:
-- `role_skill_overrides` section exists and lists at least the automated roles (`backend_engineer`, `frontend_engineer`, `data_engineer` if they appear in `roles:`).
-- Every skill in `role_skill_overrides.*.enabled_skills` exists as a directory under `<WORKSPACE_ROOT>/workflow/technical_skills/`.
+- `model_policy` section exists with per-phase `allowed` + `default` entries for: `implementation`, `self_review`, `pr_description`, `suggested_next_step`.
 - At least one repo is declared under `repos:`.
 
 For each issue found: report it and offer to fix it interactively.
@@ -140,7 +139,7 @@ Aggregated from all skill `## Environment` sections. These values are load-beari
 | At least one repo | `start-implementation` | A workspace with no repos cannot run any git-based workflow |
 | `<REPO_ID_UPPER>_LOCAL_PATH` per repo | `resolve-project-env`, `start-implementation` | Required for any git task execution |
 | `base_branch` per repo | `start-implementation`, `pr-create` | Per-repo base branch declared in `workspace.yaml`; no global default |
-| `role_skill_overrides` for each automated role | `init-workspace`, `sync-workspace-rules` | workspace.yaml is invalid without it when `technical_skills/` is non-empty |
+| `model_policy` per-phase model allowlist | `init-workspace` | workspace.yaml centralized model cost control — defines allowed models + default per phase |
 
 ### Deferrable — can be set later
 
@@ -210,15 +209,19 @@ For each repo (starting with the first):
 
 Collect all repos before moving to the next phase.
 
-### Phase 6 — Technical skill assignment
+### Phase 6 — Model policy
 
-Show the user a list of available technical skills from `<WORKSPACE_ROOT>/workflow/technical_skills/` (read the directory).
+Explain to the user: _"The workspace defines which LLM models agents may use for each phase of task execution. This is the centralized cost-control surface."_
 
-For each automated role that has repos (`backend_engineer`, `frontend_engineer`, `data_engineer`), ask:
+Show the four phases and ask the user to confirm or customize:
+- **implementation** — the main code-writing step (default: `claude-sonnet-4-6`)
+- **self_review** — agent reviews its own diff (default: `claude-sonnet-4-6`)
+- **pr_description** — summarize changes for the PR (default: `claude-haiku-4-5-20251001`)
+- **suggested_next_step** — brief explanation when blocked (default: `claude-haiku-4-5-20251001`)
 
-_"Which technical skills should the <role> use? (List the skill names from the ones shown above, or press enter to skip for now.)"_
+For each phase, ask which models to allow and which to set as default. Accept the defaults if the user presses enter.
 
-This populates `role_skill_overrides` in `workspace.yaml`. Every skill named must exist under `workflow/technical_skills/`. Do not invent skill names.
+This populates `model_policy` in `workspace.yaml`.
 
 ### Phase 7 — Confirm and write
 
@@ -233,7 +236,7 @@ GIT_AUTHOR_EMAIL:    <value>
 GITHUB_ACCOUNT:      <value>
 SSH_KEY_PATH:        <value>
 Repos:               <list with id, github, local_path, base_branch, owner_role>
-role_skill_overrides: <list>
+model_policy:        <per-phase allowed + default>
 ```
 
 Ask: _"Everything look right? Type 'yes' to create the workspace, or let me know what to change."_
@@ -300,19 +303,22 @@ repos:
     owner_role: <role>
 ```
 
-## workspace.yaml — role_skill_overrides
+## workspace.yaml — model_policy
 
 ```yaml
-role_skill_overrides:
-  backend_engineer:
-    enabled_skills:
-      - <skill-name> # must exist in workflow/technical_skills/
-  frontend_engineer:
-    enabled_skills:
-      - <skill-name>
-  data_engineer:
-    enabled_skills:
-      - <skill-name>
+model_policy:
+  implementation:
+    allowed: [claude-sonnet-4-6]
+    default: claude-sonnet-4-6
+  self_review:
+    allowed: [claude-sonnet-4-6]
+    default: claude-sonnet-4-6
+  pr_description:
+    allowed: [claude-haiku-4-5-20251001]
+    default: claude-haiku-4-5-20251001
+  suggested_next_step:
+    allowed: [claude-haiku-4-5-20251001]
+    default: claude-haiku-4-5-20251001
 ```
 
 ---
@@ -352,8 +358,7 @@ The `.env` file should be pre-filled with all confirmed values.
 - Detect mode from the filesystem — do not ask the user
 - Do not duplicate shared skills into the project
 - Do not symlink the entire `workflow_skills/` directory as one link
-- Every skill listed in `role_skill_overrides` must exist under `workflow/technical_skills/`
-- `role_skill_overrides` is required whenever `workflow/technical_skills/` is non-empty
+- `model_policy` is required in `workspace.yaml` — it defines which models agents may use per phase
 - If `WORKSPACE_ROOT` cannot be determined, ask the user before proceeding
 - Use `repair-skills.sh` as the single repair command for symlinks — do not reconstruct its steps manually
 - After running `repair-skills.sh`, always write `.claude/skills/.gitignore` with the Write tool — unconditionally, do not check first
