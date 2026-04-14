@@ -48,9 +48,32 @@ When repo access requires SSH:
 
 ## Must then
 
-- resolve the base branch from `workspace.yaml -> repos[].base_branch` for the task's repo (required; unset is an error)
-- checkout latest `<base_branch>`
-- create branch `feature/<feature_id>-<work_id>`
+Resolve the base branch from `workspace.yaml -> repos[].base_branch` for the task's repo (required; unset is an error). Then, for **both** the implementation repo and the management repo:
+
+1. **Fetch from remote** — never skip this; a stale local branch is not acceptable:
+   ```
+   git fetch origin
+   ```
+   **Hard stop** if this fails — set `status: blocked`, set `blocked_reason` to the git error message, append a log entry (action: `blocked`, note: the git error message, timestamp: real UTC), and stop. Do not proceed.
+
+2. **Checkout and hard-reset to the remote base branch** — this is the only safe starting point:
+   ```
+   git checkout <base_branch>
+   git reset --hard origin/<base_branch>
+   ```
+   **Hard stop** if either command fails (e.g. base branch does not exist on remote, dirty working tree) — set `status: blocked`, set `blocked_reason` to the git error message, append a log entry (action: `blocked`, note: the git error message, timestamp: real UTC), and stop. Do not proceed.
+
+3. **Create the feature branch**:
+   ```
+   git checkout -b feature/<feature_id>-<work_id>
+   ```
+   **Hard stop** if this fails — set `status: blocked`, set `blocked_reason` to the git error message, append a log entry (action: `blocked`, note: the git error message, timestamp: real UTC), and stop. Do not proceed.
+
+If the feature branch already exists locally (e.g. from a previous aborted attempt), delete it first:
+```
+git branch -D feature/<feature_id>-<work_id>
+```
+then repeat steps 2–3.
 
 ## Must append task log
 
@@ -79,11 +102,13 @@ Use re-do mode instead of the normal flow when:
 
 ### Must then (re-do)
 
-1. **Update the branch** — check out the existing feature branch and pull latest:
+1. **Update the branch** — fetch remote state first, then check out and fast-forward the feature branch:
    ```
+   git fetch origin
    git checkout feature/<feature_id>-<work_id>
-   git pull origin feature/<feature_id>-<work_id>
+   git reset --hard origin/feature/<feature_id>-<work_id>
    ```
+   **Hard stop** if any of these commands fail (e.g. branch does not exist on remote) — append a log entry to the task file (action: `blocked`, note: the git error message) and stop. Do not proceed.
 
 2. **Check existing changes** — review what is already on the branch vs the repo's base branch (resolved from `workspace.yaml -> repos[].base_branch` for the task's repo):
    ```
