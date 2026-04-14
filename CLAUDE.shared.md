@@ -13,6 +13,8 @@ Features follow this lifecycle:
 - blocked
 - cancelled
 
+![Feature Lifecycle Workflow](docs/feature-workflow.png)
+
 ## Stage review status values
 
 - draft
