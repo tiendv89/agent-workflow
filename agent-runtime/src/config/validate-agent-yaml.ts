@@ -40,7 +40,7 @@ export type ValidationResult =
   | { valid: false; errors: ValidationError[] };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SCHEMA_PATH = resolve(__dirname, "../../schemas/agent.schema.json");
+const SCHEMA_PATH = resolve(__dirname, "../../../schemas/agent.schema.json");
 
 let _ajvValidate: ValidateFunction | null = null;
 

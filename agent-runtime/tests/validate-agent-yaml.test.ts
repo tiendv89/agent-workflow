@@ -9,7 +9,7 @@ const fixture = (name: string) =>
   readFileSync(resolve(__dirname, "fixtures", name), "utf-8");
 
 const schema = JSON.parse(
-  readFileSync(resolve(__dirname, "../schemas/agent.schema.json"), "utf-8"),
+  readFileSync(resolve(__dirname, "../../schemas/agent.schema.json"), "utf-8"),
 );
 
 describe("validateAgentYaml", () => {
