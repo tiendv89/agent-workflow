@@ -8,7 +8,11 @@ Quick-reference for diagnosing common agent-runtime failures. Each section start
 
 - [Task stuck in `in_progress` (stale claim)](#task-stuck-in-in_progress-stale-claim)
 - [Missing skill — task never claimed](#missing-skill--task-never-claimed)
+- [Skill missing during execution](#skill-missing-during-execution)
 - [Budget exhausted](#budget-exhausted)
+- [Iteration cap exceeded](#iteration-cap-exceeded)
+- [No-progress loop](#no-progress-loop)
+- [Runtime error](#runtime-error)
 - [Model escalation requested](#model-escalation-requested)
 - [Model fallback events](#model-fallback-events)
 - [SSH key misconfiguration](#ssh-key-misconfiguration)
@@ -86,6 +90,43 @@ The agent picks up the new skill on the next bootstrap (no task reset needed).
 
 ---
 
+## Skill missing during execution
+
+**Symptom:** Task YAML has `status: blocked`, `blocked_reason: skill_missing`. This is distinct from the pre-claim `task_skipped_missing_skill` event — the task was claimed but the skill directory was not found on the filesystem at run time.
+
+**Cause:** The skill slug declared in `tasks.md → ### Required skills` exists in the eligibility index but the corresponding directory under `workflow/technical_skills/<slug>/` is absent from the cloned workflow repo (e.g. the skill was added to the index but the directory was never committed).
+
+**Diagnosis:**
+
+```bash
+# Check what skill the task requires
+grep -A5 "### Required skills" docs/features/<featureId>/tasks.md
+
+# Check what skill dirs are present in the cloned workflow repo
+ls workflow/technical_skills/
+```
+
+**Fix:**
+
+Create the missing skill directory and `SKILL.md`, commit and push:
+
+```bash
+mkdir -p workflow/technical_skills/<slug>
+echo "# <slug>" > workflow/technical_skills/<slug>/SKILL.md
+git add workflow/technical_skills/<slug>/
+git commit -m "feat: add <slug> skill"
+git push
+```
+
+Reset the task:
+
+```yaml
+status: ready
+blocked_reason: null
+```
+
+---
+
 ## Budget exhausted
 
 **Symptom:** Task YAML has `status: blocked`, `blocked_reason: budget_exceeded`. `blocked_details` contains `{ totalTokens, max_tokens_per_task }`.
@@ -114,6 +155,88 @@ git show origin/feature/<featureId>-T<n>:docs/features/<featureId>/logs/ \
 3. Add more context in the task description so the agent converges faster.
 
 After adjusting, reset the task:
+
+```yaml
+status: ready
+blocked_reason: null
+```
+
+---
+
+## Iteration cap exceeded
+
+**Symptom:** Task YAML has `status: blocked`, `blocked_reason: iteration_cap_exceeded`. `blocked_details` contains `{ iterations, max_iterations }`.
+
+**Cause:** The agent reached `max_iterations` in `agent.yaml` without completing the task.
+
+**Diagnosis:**
+
+```bash
+# Check iteration count vs cap
+cat docs/features/<featureId>/tasks/T<n>.yaml | grep -A3 blocked_details
+
+# Inspect the run log for repeated tool calls
+git show origin/feature/<featureId>-T<n>:docs/features/<featureId>/logs/ \
+  | tail -1 \
+  | xargs -I{} git show origin/feature/<featureId>-T<n>:docs/features/<featureId>/logs/{}
+```
+
+**Fix options:**
+
+1. Increase `max_iterations` in `agent.yaml` if the task is legitimately long-running.
+2. Split the task into smaller subtasks.
+3. Clarify the task description in `tasks.md` to help the agent converge faster.
+
+After adjusting, reset:
+
+```yaml
+status: ready
+blocked_reason: null
+```
+
+---
+
+## No-progress loop
+
+**Symptom:** Task YAML has `status: blocked`, `blocked_reason: no_progress`. `blocked_details` contains `{ repeated_calls }`.
+
+**Cause:** The agent called identical tools with identical arguments 3 iterations in a row — a sign the task description is ambiguous or the agent is stuck in a loop.
+
+**Diagnosis:**
+
+Inspect `blocked_details.repeated_calls` in the task YAML for the repeated tool+args pattern. Review the task description in `tasks.md` for ambiguity.
+
+**Fix:**
+
+1. Clarify the task description or acceptance criteria in `tasks.md`.
+2. If the task requires a capability the current model lacks, add a `### Model overrides` entry.
+
+Reset the task:
+
+```yaml
+status: ready
+blocked_reason: null
+```
+
+---
+
+## Runtime error
+
+**Symptom:** Task YAML has `status: blocked`, `blocked_reason: runtime_error`. `blocked_details` contains `{ error, stack }`.
+
+**Cause:** An unhandled exception occurred during task execution (agent bug or environment issue). The runtime catches it and sets `blocked` so the task is never left in `in_progress`.
+
+**Diagnosis:**
+
+```bash
+# Read the error from the task YAML
+cat docs/features/<featureId>/tasks/T<n>.yaml | grep -A5 blocked_details
+
+# Cross-reference with agent logs
+journalctl -u agent-runtime.service --output=cat | jq 'select(.type == "task_blocked")'
+```
+
+**Fix:** Address the root cause from `blocked_details.error`. This may require a runtime update. Once fixed, reset:
 
 ```yaml
 status: ready

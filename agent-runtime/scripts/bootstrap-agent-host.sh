@@ -131,9 +131,13 @@ ok "Docker: ${DOCKER_VERSION}"
 
 # ── Pull the agent-runtime image ───────────────────────────────────────────────
 
-log "Pulling image: ${AGENT_IMAGE}"
-docker pull "${AGENT_IMAGE}"
-ok "Image ready: ${AGENT_IMAGE}"
+if docker image inspect "${AGENT_IMAGE}" &>/dev/null; then
+  ok "Image already present locally: ${AGENT_IMAGE}"
+else
+  log "Pulling image: ${AGENT_IMAGE}"
+  docker pull "${AGENT_IMAGE}" || die "Failed to pull ${AGENT_IMAGE}. Build locally with: docker buildx build -f agent-runtime/Dockerfile -t ${AGENT_IMAGE} <repo-root>"
+  ok "Image ready: ${AGENT_IMAGE}"
+fi
 
 # ── Collect credentials ────────────────────────────────────────────────────────
 
