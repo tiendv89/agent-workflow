@@ -1,0 +1,9 @@
+watches: "not-an-array"
+enabled: "yes"
+jitter_max_seconds: -5
+budget:
+  max_tokens_per_task: 0
+  max_iterations: "three"
+  suggested_next_step_max_tokens: -1
+log_sink:
+  enabled: 1
