@@ -30,6 +30,10 @@ import { parseTasksMd } from "../eligibility/parse-tasks-md.js";
 import type { LogSink } from "../logging/log-sink.js";
 import type { Task, BlockedReason } from "../types/task.js";
 import type { AgentConfig } from "../config/validate-agent-yaml.js";
+import {
+  generateSuggestedNextStep,
+  type SuggestedNextStepClient,
+} from "../claim/suggested-next-step.js";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -265,6 +269,91 @@ function markTaskInReview(
         }),
       );
     }
+  }
+}
+
+// ── Suggested-next-step helper ────────────────────────────────────────────────
+
+/**
+ * After a task is marked blocked, generate a one-sentence triage hint using the
+ * Haiku tier and persist it to task.execution.suggested_next_step.
+ *
+ * Non-fatal: all failures are logged as JSON to stderr and silently swallowed.
+ * Only runs when skipGit is false (production mode) — tests use skipGit: true.
+ */
+async function writeSuggestedNextStep(opts: RunTaskOptions): Promise<void> {
+  const {
+    workspaceRoot,
+    featureId,
+    taskId,
+    gitAuthorEmail,
+    sshKeyPath,
+    skipGit = false,
+    anthropicClient,
+    agentConfig,
+    workspaceModelPolicy,
+  } = opts;
+
+  if (skipGit) return;
+
+  try {
+    const task = loadTaskYaml(workspaceRoot, featureId, taskId);
+
+    const mdPath = tasksMdFilePath(workspaceRoot, featureId);
+    const tasksmdContent = existsSync(mdPath)
+      ? readFileSync(mdPath, "utf-8")
+      : "";
+    const description = tasksmdContent
+      ? extractTaskDescription(tasksmdContent, taskId)
+      : null;
+
+    const taskOverrides = tasksmdContent
+      ? parseModelOverrides(tasksmdContent, taskId)
+      : {};
+    const hintModel = resolveModel(
+      workspaceModelPolicy,
+      taskOverrides,
+      "suggested_next_step",
+      taskId,
+    );
+
+    const hint = await generateSuggestedNextStep({
+      task,
+      taskDescription: description,
+      anthropicClient: anthropicClient as unknown as SuggestedNextStepClient,
+      model: hintModel,
+      maxTokens: agentConfig.budget.suggested_next_step_max_tokens,
+    });
+
+    task.execution.suggested_next_step = hint;
+    saveTaskYaml(workspaceRoot, featureId, taskId, task);
+
+    try {
+      gitCommitTaskYaml(
+        workspaceRoot,
+        featureId,
+        taskId,
+        `chore(${taskId}): add suggested_next_step`,
+        sshKeyPath,
+        task.branch,
+      );
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          type: "suggested_next_step_git_error",
+          taskId,
+          error: (err as Error).message,
+        }),
+      );
+    }
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        type: "suggested_next_step_error",
+        taskId,
+        error: (err as Error).message,
+      }),
+    );
   }
 }
 
@@ -670,9 +759,11 @@ function toolCallsFingerprint(blocks: Anthropic.ToolUseBlock[]): string {
  * @returns RunTaskResult — always returns; never throws (runtime errors are caught).
  */
 export async function runTask(opts: RunTaskOptions): Promise<RunTaskResult> {
+  let result: RunTaskResult;
+
   // ── Outer try/catch: runtime-error path ────────────────────────────────────
   try {
-    return await runTaskInner(opts);
+    result = await runTaskInner(opts);
   } catch (err) {
     const e = err as Error;
     const stackSnippet = (e.stack ?? e.message).slice(0, 1000);
@@ -710,8 +801,17 @@ export async function runTask(opts: RunTaskOptions): Promise<RunTaskResult> {
       );
     }
 
-    return { outcome: "blocked", reason: "runtime_error", details };
+    result = { outcome: "blocked", reason: "runtime_error", details };
   }
+
+  // ── Suggested-next-step on any blocked outcome ──────────────────────────────
+  // Generates a Haiku-tier triage hint and persists it to task.yaml.
+  // Skipped when skipGit is true (test mode) — see writeSuggestedNextStep.
+  if (result.outcome === "blocked") {
+    await writeSuggestedNextStep(opts);
+  }
+
+  return result;
 }
 
 async function runTaskInner(opts: RunTaskOptions): Promise<RunTaskResult> {
