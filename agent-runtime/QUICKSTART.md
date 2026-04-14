@@ -35,7 +35,7 @@ The image includes Node 20, Python 3.12, and Go 1.25. Expect a ~800 MB image and
 ## 2. Configure
 
 ```bash
-cd agent-runtime/orchestration/local
+cd agent-runtime/orchestration
 
 # Create the env file
 cp .env.example .env
@@ -70,16 +70,16 @@ GIT_AUTHOR_EMAIL=you@example.com
 
 ## 3. Run two agents
 
-From **`agent-runtime/orchestration/local/`**:
+From **`agent-runtime/orchestration/`**:
 
 ```bash
-docker compose up
+docker compose --profile dev up
 ```
 
 Or from the **`workflow/` root**:
 
 ```bash
-docker compose -f agent-runtime/orchestration/local/docker-compose.yml up
+docker compose -f agent-runtime/orchestration/docker-compose.yml --profile dev up
 ```
 
 Both agents share the same workspace clone volume. They will:
@@ -95,11 +95,11 @@ Events are emitted as JSON lines to stdout. Useful patterns to watch:
 
 ```bash
 # Follow both agents, pretty-print JSON
-docker compose -f agent-runtime/orchestration/local/docker-compose.yml logs -f \
+docker compose --profile dev logs -f \
   | jq -R 'try fromjson catch .'
 
 # See only claim events
-docker compose logs | grep '"type":"task_claimed\|claim_lost"'
+docker compose --profile dev logs | grep '"type":"task_claimed\|claim_lost"'
 ```
 
 Key event types:
@@ -117,7 +117,7 @@ Key event types:
 ## 5. Rebuild after code changes
 
 ```bash
-docker compose -f agent-runtime/orchestration/local/docker-compose.yml up --build
+docker compose --profile dev up --build
 ```
 
 Or build separately then run:
@@ -126,8 +126,8 @@ Or build separately then run:
 # From workflow/ root:
 docker build -f agent-runtime/Dockerfile -t agent-runtime:local .
 
-# Then from orchestration/local/:
-docker compose up
+# Then from orchestration/:
+docker compose --profile dev up
 ```
 
 ## 6. Reset workspace clones
@@ -135,8 +135,18 @@ docker compose up
 The `workspaces` Docker volume persists between runs (so re-cloning is fast). To force a full re-clone:
 
 ```bash
-docker compose -f agent-runtime/orchestration/local/docker-compose.yml down -v
+docker compose --profile dev down -v
 ```
+
+## Production supervisor
+
+To run a persistent 5-minute-cadence supervisor loop using the published GHCR image:
+
+```bash
+docker compose --profile prod up -d
+```
+
+See `orchestration/docker-compose.yml` for the full supervisor configuration, and `orchestration/kubernetes/`, `orchestration/systemd/`, and `orchestration/github-actions/` for other deployment targets.
 
 ## Troubleshooting
 

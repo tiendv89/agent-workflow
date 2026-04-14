@@ -1,0 +1,23 @@
+# agent-runtime.timer — fire agent-runtime.service every 5 minutes.
+#
+# Persistent=true means a missed activation (e.g. host was off) fires
+# immediately on next boot rather than waiting for the next 5-min mark.
+#
+# Installation: see agent-runtime.service header.
+
+[Unit]
+Description=Run agent-runtime every 5 minutes
+Documentation=https://github.com/tiendv89/agent-workflow/tree/main/agent-runtime
+
+[Timer]
+# Wait 1 minute after boot before first activation (gives Docker time to start).
+OnBootSec=1min
+# Then fire every 5 minutes from when the unit last activated.
+OnUnitActiveSec=5min
+# If a tick was missed (e.g. host was asleep), fire once immediately on wake.
+Persistent=true
+# Randomise the start by up to 30s to reduce simultaneous multi-host spikes.
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target
