@@ -1,7 +1,6 @@
 id: T1
 title: Example task
 repo: project-A-api
-role: backend_engineer
 status: todo
 depends_on: []
 blocked_reason: null

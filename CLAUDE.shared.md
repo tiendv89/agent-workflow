@@ -131,40 +131,21 @@ Typical required values:
 - SSH-based git access must use `SSH_KEY_PATH` resolved through `resolve-project-env`
 - Do not assume the default SSH key is correct
 
-## Role skill overrides
+## Per-task required skills
 
-Each project's `workspace.yaml` must declare `role_skill_overrides` for every role that will run agent-executed tasks.
+Technical skills are declared per task, not per agent or per role. Each task's `## T<n>` section in `tasks.md` includes a `### Required skills` subsection listing the skill slugs the task needs. Skill slugs must match directory names under `workflow/technical_skills/`.
 
-`role_skill_overrides` maps each role to the specific skills from `technical_skills/` that apply to that project's stack.
+At run-task time, the agent reads the declared skills and loads their `SKILL.md` content into its system prompt. This is the only capability-matching mechanism — there is no agent-side role or skills list.
 
-Example:
+See `tasks.md`'s `### Required skills` subsection as the source of truth for per-task capability.
 
-```yaml
-role_skill_overrides:
-  backend_engineer:
-    enabled_skills:
-      - go-best-practices
-      - postgres-best-practices
-  frontend_engineer:
-    enabled_skills:
-      - nextjs-best-practices
-      - typescript-best-practices
-      - react-native-mobile-engineer
-      - browser-qa-frontend
-      - heroui-react
-  data_engineer:
-    enabled_skills:
-      - python-data
-      - python-best-practices
-      - airflow-3
-```
+## Narrative / state split
 
-Rules:
+Task YAML files (`tasks/T<n>.yaml`) contain only machine-mutable state: `status`, `depends_on`, `blocked_reason`, `branch`, `execution`, `pr`, `log`. Agents read and write these files.
 
-- Every skill listed under `enabled_skills` must exist as a directory under `<WORKSPACE_ROOT>/workflow/technical_skills/`
-- Roles not listed in `role_skill_overrides` inherit no technical skill context
-- `role_skill_overrides` is required whenever `technical_skills/` is non-empty
-- Do not list workflow skills here — only technical skills belong in `role_skill_overrides`
+Logical intent — description, subtasks, required skills, model overrides — lives in `tasks.md`. This file is authored by humans (or the tech-lead skill) and stays stable during implementation. Agents read it but do not modify it except to check off subtask items.
+
+This split isolates git-push contention: multiple agents can mutate separate task YAMLs in parallel without conflicting on a shared narrative file.
 
 ## Product-spec phase write boundary
 

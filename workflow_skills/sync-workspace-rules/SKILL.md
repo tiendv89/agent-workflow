@@ -96,19 +96,13 @@ Use the Write tool to create or overwrite `<project_root>/.claude/skills/.gitign
 
 This prevents all current and future symlinks from being committed. Write it unconditionally — do not check whether it already exists first.
 
-## role_skill_overrides verification
+## model_policy verification
 
-After syncing rules and symlinks, verify that `workspace.yaml` contains `role_skill_overrides`.
+After syncing rules and symlinks, verify that `workspace.yaml` contains `model_policy`.
 
-For each role listed under `role_skill_overrides`, verify that every skill in `enabled_skills` exists as a directory under:
+Check that `model_policy` has entries for all four phases: `implementation`, `self_review`, `pr_description`, `suggested_next_step`. Each phase must have `allowed` (non-empty array) and `default` (must be in the `allowed` list).
 
-```text
-<WORKSPACE_ROOT>/workflow/technical_skills/
-```
-
-If any skill is missing from `technical_skills/`, report it to the user — do not silently skip it.
-
-If `role_skill_overrides` is absent and `technical_skills/` is non-empty, warn the user that it is required.
+If `model_policy` is absent, warn the user that it is required.
 
 ## Rules
 - do not mutate project-specific rules
@@ -120,4 +114,4 @@ If `role_skill_overrides` is absent and `technical_skills/` is non-empty, warn t
 - do not use bash to check or write `.gitignore` — use the Write tool only
 - if `WORKSPACE_ROOT` is missing, require the user to answer with the local workspace root path
 - if `project_root` cannot be validated, require the user to answer with the project folder path
-- every skill in `role_skill_overrides.*.enabled_skills` must exist under `workflow/technical_skills/`
+- `model_policy` in `workspace.yaml` must define all four phases with valid `allowed` + `default`

@@ -19,7 +19,8 @@ This skill is architecture and planning oriented.
 
 It should produce or update:
 - `technical-design.md`
-- task files under `docs/features/<feature_id>/tasks/`
+- `docs/features/<feature_id>/tasks.md` (narrative task breakdown)
+- `docs/features/<feature_id>/tasks/T<n>.yaml` (one lean state file per task)
 - `status.yaml` when planning state must advance or be clarified
 
 It should not:
@@ -34,7 +35,7 @@ Read from:
 - project `CLAUDE.md`
 - `docs/features/<feature_id>/product-spec.md`
 - `docs/features/<feature_id>/status.yaml`
-- existing `technical-design.md` or task files, if present
+- existing `technical-design.md`, `tasks.md`, or `tasks/T<n>.yaml` files, if present
 
 ## Required design output
 When drafting or updating `technical-design.md`, include:
@@ -82,11 +83,48 @@ Identify:
 If a dependency is unresolved, say so explicitly.
 
 ### 6. Parallelization / blocking analysis
-Explain:
-- what can proceed in parallel
-- what must wait
-- which tasks are hard blockers
-- which work can begin with placeholders or temporary assumptions
+
+This section is mandatory and must include a **per-task dependency diagram** — not just prose waves. The diagram is how humans reason about what can start immediately and what is gated on what.
+
+Required elements:
+- External decisions/dependencies (if any) listed at the top with a short unblock note.
+- Every task `T<n>` on its own line. Optionally annotate with a short descriptor (e.g. skill focus or repo) — but not with a role, since agents are full-stack.
+- Directly under each task, one or more indented `└── …` lines stating either:
+  - `Can begin now — no blockers` — for tasks whose `depends_on` is empty.
+  - `BLOCKED on T<n> (<reason>)` — one line per real blocker. Reasons must be concrete (e.g. "schema must be frozen", "SDK must be in place") — not just "T3 must be done".
+- When tasks run in parallel with each other, say so explicitly: `T2 and T3 run in parallel`.
+- Visual nesting must match the dependency order. Children of a blocker indent under it. Independent branches do not nest under each other.
+
+Use this as a reference template (FARO-197 style — copy the shape, not the content):
+
+```
+D5: Confirm surface identifiers with Pye ──┐
+D6: Afonso updates Bet 2 / Nam scope      ──┘ both run immediately; low-effort; unblock before T4/T5
+
+T1: Finalise event-tracking.md + analytics-conventions-v1.md
+  └── Can begin now — no blockers
+  │
+T2: Mixpanel SDK — voyager-interface
+T3: Mixpanel SDK — voyager-mobile
+  └── T2 and T3 run in parallel
+  └── Can begin now (use MIXPANEL_TOKEN=placeholder)
+  │
+  T4: Instrument 27 events — voyager-interface
+  T5: Instrument 27 events — voyager-mobile
+      └── BLOCKED on T1 (finalised event-tracking.md)
+      └── BLOCKED on T2/T3 respectively (SDK must be in place)
+      └── BLOCKED on D5 (surface identifiers locked)
+      └── T4 and T5 run in parallel
+      │
+      T6: Internal review + sign-off
+            └── T7: Publish + mark done
+```
+
+Rules when producing the diagram:
+- Every task listed in the tasks breakdown must appear in this diagram.
+- Blocker reasons must explain *why*, not restate the dep. "BLOCKED on T1 (finalised event-tracking.md)" is right. "BLOCKED on T1" alone is not enough.
+- If two tasks block each other symmetrically (e.g. T4 on T2, T5 on T3), spell out the pairing: `BLOCKED on T2/T3 respectively`.
+- Do not omit the diagram in favor of prose. Prose may accompany the diagram; it never replaces it.
 
 ### 7. Repository impact
 State which repos are affected and why.
@@ -102,25 +140,55 @@ Mention:
 - deployment or handoff implications
 
 ## Task generation rules
-Task files live at:
 
-`docs/features/<feature_id>/tasks/`
+Task breakdown is split across **two artifacts** per feature:
 
-Each task must be one YAML file.
+1. **`docs/features/<feature_id>/tasks.md`** — the narrative planning document. Humans read this. Low write frequency.
+2. **`docs/features/<feature_id>/tasks/T<n>.yaml`** — one lean YAML per task carrying only machine-mutable state. Agents read and write these. This is the **source of truth** for status, dependencies, branch, PR, and log.
 
-### Required task fields
-Every task file must define:
+### Why split
+
+Per-task YAMLs isolate git-push contention when multiple agents mutate state in parallel. A single mutable file (e.g. a combined `tasks.md` that also holds status/log) would create cross-task push rejections whenever two agents commit at the same time. Splitting state per file keeps concurrent claim/update safe.
+
+### tasks.md structure
+
+Narrative only. Mirrors the FARO-197 style. Must contain:
+
+- Header line: feature status (reference), stage status, short note that machine state lives in `tasks/T<n>.yaml`.
+- Index table: `ID | Wave | Title | Depends on` — a quick-scan overview. No status fields here (status lives in YAML).
+- Per task, one section:
+  - `## T<n> — <Title>` heading
+  - `### Description` — what the task accomplishes and why it fits the design
+  - `### Required skills` — one skill slug per bullet (`- <slug>`). Slugs must match directory names under `workflow/technical_skills/` (regex: `^[a-z0-9][a-z0-9-]*$`). Empty list is valid (no skill context needed). This subsection is **mandatory** for every task — omitting it is an authoring error caught by the eligibility matcher.
+  - `### Model overrides` (optional) — per-phase model allowlist that overrides workspace defaults from `workspace.yaml` `model_policy`. Only phases that differ from workspace defaults need to be listed. Grammar:
+    ```
+    ### Model overrides
+    <phase>:
+      allowed: [<model_id>, ...]
+      default: <model_id>
+    ```
+    Valid phases: `implementation`, `self_review`, `pr_description`, `suggested_next_step`. If this subsection is absent, workspace defaults apply for all phases.
+  - `### Subtasks` — checklist items `- [ ]` / `- [x]`. These are planning notes + progress indicators the task-owning agent checks off as it works.
+
+Do **not** put `Status`, `Log`, `PR`, or any other machine-mutable field into `tasks.md`. Those live in the YAML.
+
+### tasks/T<n>.yaml structure
+
+Lean. Only machine-readable state. Must define:
+
 - `id`
-- `title`
+- `title` (short — matches the `tasks.md` section heading)
 - `repo`
-- `role`
 - `status`
 - `depends_on`
 - `blocked_reason`
 - `branch`
 - `execution.actor_type`
-- `subtasks`
+- `execution.last_updated_by`, `execution.last_updated_at`
+- `pr.url`, `pr.status`
 - `log`
+
+Do **not** put `description` or `subtasks` into the YAML — those live in `tasks.md`.
 
 ### Repo rule
 `repo` must match one of:
@@ -132,7 +200,7 @@ Do not use free-text repo labels like:
 - "backend repo"
 
 ### Dependency rule
-Every task must include `depends_on`, even if empty:
+Every task's YAML must include `depends_on`, even if empty:
 
 ```yaml
 depends_on: []
@@ -152,17 +220,20 @@ Otherwise prefer:
 - `todo`
 - or `blocked`
 
-### Subtask rule
+### Subtask rule (in tasks.md)
 Subtasks do not have independent lifecycle status.
 
-Use `subtasks:` for:
+Use checklist items under `### Subtasks` in `tasks.md` for:
 - checklist items
 - implementation notes
 - internal steps
 - reminders
+- acceptance criteria
 
-### Log rule
-Use `log:` for:
+Agents tick subtasks off in `tasks.md` as they complete them. Since only one agent holds the claim on a given task at a time, writes to a given task's subtask section are serialized by the claim protocol.
+
+### Log rule (in YAML)
+Use `log:` in each task's YAML for:
 - created
 - started
 - blocked
@@ -171,6 +242,8 @@ Use `log:` for:
 - reset
 - pr_opened
 - pr_merged
+
+Each log entry is `{action, by, at, note}`.
 
 ## Feature planning behavior
 When task planning is complete:
