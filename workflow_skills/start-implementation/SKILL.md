@@ -33,7 +33,7 @@ If required values are missing, require the user to provide them. Do not guess.
 ## Must verify
 
 - task file exists
-- task status is `ready`
+- task status is `ready` — **hard stop** if status is anything else (including `todo`, `in_progress`, `blocked`). Print the current status and stop. Do not proceed.
 - all tasks in `depends_on` are `done`
 - repo matches `workspace.yaml -> repos[].id`
 - repo local path resolves correctly
@@ -55,8 +55,8 @@ When repo access requires SSH:
 ## Must append task log
 
 - action: started
-- actor
-- timestamp
+- actor: resolved `GIT_AUTHOR_EMAIL`
+- timestamp: real UTC time via `date -u +%Y-%m-%dT%H:%M:%SZ` — never hardcode
 
 ---
 
@@ -113,5 +113,5 @@ Use re-do mode instead of the normal flow when:
 
 - action: fixed review comments
 - PR comments addressed (brief summary)
-- actor
-- timestamp
+- actor: resolved `GIT_AUTHOR_EMAIL`
+- timestamp: real UTC time via `date -u +%Y-%m-%dT%H:%M:%SZ` — never hardcode
