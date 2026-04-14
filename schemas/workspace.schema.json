@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "workspace.yaml.schema",
+  "title": "Workspace Configuration",
+  "description": "Per-project workspace configuration. model_policy is the centralized cost-control surface for all agents in the workspace.",
+  "type": "object",
+  "required": ["workspace_id", "name"],
+  "additionalProperties": true,
+  "properties": {
+    "workspace_id": {
+      "type": "string",
+      "description": "Unique identifier for this workspace.",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable workspace name.",
+      "minLength": 1
+    },
+    "overview_doc": {
+      "type": "string",
+      "description": "Relative path to the workspace overview document."
+    },
+    "model_policy": {
+      "$ref": "#/definitions/ModelPolicy"
+    },
+    "automation": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "repos": {
+      "type": "array",
+      "description": "Repositories that belong to this workspace.",
+      "items": { "$ref": "#/definitions/RepoEntry" }
+    }
+  },
+  "definitions": {
+    "ModelPhasePolicy": {
+      "type": "object",
+      "description": "Model allowlist for one execution phase.",
+      "required": ["allowed", "default"],
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "type": "array",
+          "description": "Model IDs the agent may use for this phase. Must be non-empty.",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        },
+        "default": {
+          "type": "string",
+          "description": "Model to use unless overridden. Must be present in allowed.",
+          "minLength": 1
+        }
+      }
+    },
+    "ModelPolicy": {
+      "type": "object",
+      "description": "Per-phase model allowlist. Set once per workspace; agents inherit it. Tasks may override specific phases via ### Model overrides in tasks.md.",
+      "required": ["implementation", "self_review", "pr_description", "suggested_next_step"],
+      "additionalProperties": false,
+      "properties": {
+        "implementation": {
+          "$ref": "#/definitions/ModelPhasePolicy",
+          "description": "Model for writing code and running tools."
+        },
+        "self_review": {
+          "$ref": "#/definitions/ModelPhasePolicy",
+          "description": "Model for reviewing the agent's own diff before opening a PR."
+        },
+        "pr_description": {
+          "$ref": "#/definitions/ModelPhasePolicy",
+          "description": "Model for generating the PR title and body."
+        },
+        "suggested_next_step": {
+          "$ref": "#/definitions/ModelPhasePolicy",
+          "description": "Model for generating a short triage hint when a task blocks."
+        }
+      }
+    },
+    "RepoEntry": {
+      "type": "object",
+      "description": "A repository that belongs to this workspace.",
+      "required": ["id", "github", "local_path", "base_branch"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Repo identifier — used in task YAML repo field.",
+          "minLength": 1
+        },
+        "github": {
+          "type": "string",
+          "description": "SSH or HTTPS remote URL.",
+          "minLength": 1
+        },
+        "local_path": {
+          "type": "string",
+          "description": "Local filesystem path or env: reference (e.g. env:MY_REPO_LOCAL_PATH).",
+          "minLength": 1
+        },
+        "base_branch": {
+          "type": "string",
+          "description": "Default branch for this repo (e.g. main).",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

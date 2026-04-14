@@ -10,15 +10,25 @@
 id: T1
 title: Example task
 repo: project-A-api
-status: ready
+status: ready       # todo | ready | in_progress | blocked | in_review | done | cancelled
 depends_on: []
-blocked_reason: null
+blocked_reason: null  # null when not blocked. Values when blocked:
+                      #   budget_exceeded           — token budget exhausted
+                      #   iteration_cap_exceeded    — max loop iterations reached
+                      #   no_progress               — same tool call repeated 3x
+                      #   model_escalation_requested — agent needs a more capable model
+                      #   skill_missing             — required skill not in workflow repo
+                      #   runtime_error             — uncaught exception; see blocked_details
+blocked_details: null # Optional: structured context for blocked_reason.
+                      # For model_escalation_requested: includes current_model.
+                      # For runtime_error: truncated stack trace.
 branch: feature/FEATURE-001-T1
 
 execution:
-  actor_type: agent
+  actor_type: agent   # human | agent | either
   last_updated_by: null
   last_updated_at: null
+  suggested_next_step: null  # Written by agent when blocking; human triage hint.
 
 pr:
   url: ""

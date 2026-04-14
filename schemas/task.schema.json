@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "task.yaml.schema",
+  "title": "Task State",
+  "description": "Machine-mutable task state. Narrative (description, subtasks, required skills, model overrides) lives in tasks.md beside this file.",
+  "type": "object",
+  "required": ["id", "title", "repo", "status", "depends_on", "branch", "execution", "pr", "log"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Task identifier, e.g. T1.",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "description": "Short human-readable task title.",
+      "minLength": 1
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repo ID — must match workspace.yaml repos[].id.",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "description": "Current lifecycle status of the task.",
+      "enum": ["todo", "ready", "in_progress", "blocked", "in_review", "done", "cancelled"]
+    },
+    "depends_on": {
+      "type": "array",
+      "description": "Task IDs that must be done before this task can start. Use [] if none.",
+      "items": { "type": "string" }
+    },
+    "blocked_reason": {
+      "description": "Populated when status is blocked. Null when task is not blocked.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "enum": [
+            "budget_exceeded",
+            "iteration_cap_exceeded",
+            "no_progress",
+            "model_escalation_requested",
+            "skill_missing",
+            "runtime_error"
+          ]
+        }
+      ]
+    },
+    "blocked_details": {
+      "description": "Optional structured details about the blocked_reason (e.g. current_model for model_escalation_requested).",
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string" },
+        { "type": "object" }
+      ]
+    },
+    "branch": {
+      "type": "string",
+      "description": "Feature branch name in the target repo.",
+      "minLength": 1
+    },
+    "execution": {
+      "type": "object",
+      "description": "Execution metadata.",
+      "required": ["actor_type"],
+      "additionalProperties": false,
+      "properties": {
+        "actor_type": {
+          "type": "string",
+          "description": "Who may execute this task.",
+          "enum": ["human", "agent", "either"]
+        },
+        "last_updated_by": {
+          "description": "Git author email of the last actor to mutate this task.",
+          "oneOf": [{ "type": "null" }, { "type": "string" }]
+        },
+        "last_updated_at": {
+          "description": "ISO 8601 timestamp of the last mutation.",
+          "oneOf": [{ "type": "null" }, { "type": "string" }]
+        },
+        "suggested_next_step": {
+          "description": "Human-readable triage hint written by the agent when blocking.",
+          "oneOf": [{ "type": "null" }, { "type": "string" }]
+        }
+      }
+    },
+    "pr": {
+      "type": "object",
+      "description": "Pull request state.",
+      "required": ["url", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "PR URL, or empty string if not yet created."
+        },
+        "status": {
+          "type": "string",
+          "description": "PR lifecycle state.",
+          "enum": ["not_created", "open", "merged", "closed"]
+        }
+      }
+    },
+    "log": {
+      "type": "array",
+      "description": "Append-only audit log. Every status change must add an entry.",
+      "items": {
+        "type": "object",
+        "required": ["action", "by", "at"],
+        "additionalProperties": true,
+        "properties": {
+          "action": { "type": "string" },
+          "by": { "type": "string" },
+          "at": { "type": "string" },
+          "note": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,53 @@
+# Workspace configuration.
+#
+# model_policy is the centralized cost-control surface for all agents in
+# this workspace. Every agent reads these defaults at runtime. Individual
+# tasks may override specific phases via ### Model overrides in tasks.md
+# (task-level override replaces the workspace default for that phase only).
+
+workspace_id: project-A
+name: Project A
+overview_doc: docs/overview.md
+
+# Per-phase model allowlist — set this once; all agents inherit it.
+#
+# Phases:
+#   implementation     — writing code, running tools, making commits
+#   self_review        — reviewing own diff before opening a PR
+#   pr_description     — drafting the PR title and body
+#   suggested_next_step — generating a short triage hint when a task blocks
+#
+# For each phase:
+#   allowed: non-empty list of model IDs the agent may use.
+#   default: the model used by default; must appear in allowed.
+#
+# To permit Opus for a single task, add it to that task's ### Model overrides
+# subsection in tasks.md. To permit Opus workspace-wide, add it to the
+# relevant phase's allowed list here (and optionally set it as default).
+model_policy:
+  implementation:
+    allowed: [claude-sonnet-4-6]          # capable default; add claude-opus-4-6 here to unlock it workspace-wide
+    default: claude-sonnet-4-6
+  self_review:
+    allowed: [claude-sonnet-4-6]
+    default: claude-sonnet-4-6
+  pr_description:
+    allowed: [claude-haiku-4-5-20251001]  # lightweight — PR descriptions don't need a large model
+    default: claude-haiku-4-5-20251001
+  suggested_next_step:
+    allowed: [claude-haiku-4-5-20251001]  # lightweight — short triage hints only
+    default: claude-haiku-4-5-20251001
+
+automation:
+  enabled: true
+
+repos:
+  - id: project-A-api
+    github: git@github.com:example/project-A-api.git
+    local_path: env:PROJECT_A_API_LOCAL_PATH  # resolved from .env
+    base_branch: main
+
+  - id: project-A-web
+    github: git@github.com:example/project-A-web.git
+    local_path: env:PROJECT_A_WEB_LOCAL_PATH
+    base_branch: main
