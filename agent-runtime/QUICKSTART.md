@@ -57,6 +57,7 @@ jitter_max_seconds: 2
 budget:
   max_tokens_per_task: 100000
   max_iterations: 30
+  suggested_next_step_max_tokens: 1000
 log_sink:
   enabled: true
 ```

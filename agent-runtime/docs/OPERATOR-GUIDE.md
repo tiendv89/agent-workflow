@@ -151,6 +151,8 @@ budget:
   # Exceeding this blocks the task with blocked_reason: iteration_cap_exceeded.
   max_iterations: 30
 
+  # Token budget for the Haiku-tier suggested_next_step hint.
+  suggested_next_step_max_tokens: 1000
 
 log_sink:
   # Write a JSONL run log to docs/features/<featureId>/logs/<runId>.jsonl

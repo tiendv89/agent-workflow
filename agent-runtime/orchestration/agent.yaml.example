@@ -20,6 +20,7 @@ budget:
   max_tokens_per_task: 100000
   # Maximum tool-use loop iterations per task.
   max_iterations: 30
+  # Token budget for the Haiku-tier suggested_next_step hint on blocked tasks.
 
 # Per-run JSONL event log written to docs/features/<id>/logs/ on the task branch.
 log_sink:

@@ -38,6 +38,7 @@ budget:
   # Token budget reserved for the suggested_next_step synthesis that runs
   # when the agent blocks. Positive integer. Drawn from a separate allowance
   # so it does not compete with the main task budget.
+  suggested_next_step_max_tokens: 2000
 
 # Per-run log sink configuration.
 log_sink:
