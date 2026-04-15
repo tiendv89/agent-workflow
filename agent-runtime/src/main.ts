@@ -16,9 +16,11 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { runBootstrap } from "./bootstrap/bootstrap.js";
 import { resolveSSHKey } from "./resolve-ssh-key.js";
-import { workspaceYamlPath, featuresRoot, taskYamlAbsPath } from "./paths.js";
+import { workspaceYamlPath, featuresRoot, taskYamlAbsPath, taskBranchName } from "./paths.js";
 import { findEligibleTasks } from "./eligibility/match.js";
 import { claimTask } from "./claim/claim-task.js";
+import { openWorkspacePr, parseGitHubCoords } from "./claim/open-workspace-pr.js";
+import type { Task } from "./types/task.js";
 import { generateAgentContext } from "./bootstrap/agent-context.js";
 import { runClaude } from "./loop/run-claude.js";
 import { resolveModel } from "./config/resolve-model-policy.js";
@@ -121,6 +123,27 @@ function findFeatureId(workspaceRoot: string, taskId: string): string | null {
   return null;
 }
 
+/**
+ * Parse the GitHub owner/repo and base branch for the management repo declared
+ * in workspace.yaml. Used to call openWorkspacePr after a successful claim.
+ */
+function parseManagementRepoCoords(
+  workspaceRoot: string,
+): { owner: string; repo: string; baseBranch: string } {
+  type RepoEntry = { id: string; github: string; local_path?: string; base_branch?: string };
+  const yaml = parseYaml(
+    readFileSync(workspaceYamlPath(workspaceRoot), "utf-8"),
+  ) as { management_repo: string; repos: RepoEntry[] };
+
+  const mgmtId = yaml.management_repo;
+  const mgmtRepo = yaml.repos.find((r) => r.id === mgmtId);
+  if (!mgmtRepo) {
+    throw new Error(`Management repo "${mgmtId}" not found in workspace.yaml repos`);
+  }
+  const { owner, repo } = parseGitHubCoords(mgmtRepo.github);
+  return { owner, repo, baseBranch: mgmtRepo.base_branch ?? "main" };
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<number> {
@@ -211,12 +234,55 @@ async function main(): Promise<number> {
         jitterMaxSeconds: config.jitter_max_seconds,
       });
 
+      // Canonical task branch — single source of truth for all downstream calls.
+      // task.branch is written by claimTask on win and equals this value, but we
+      // derive it here so the branch name is consistent on both won and recovery paths.
+      const taskBranch = taskBranchName(featureId, task.id);
+
       if (!claimResult.won) {
-        emit({ type: "claim_lost", task_id: task.id, reason: claimResult.reason });
-        continue;
+        if (claimResult.reason !== "branch_blocked_recovery") {
+          emit({ type: "claim_lost", task_id: task.id, reason: claimResult.reason });
+          continue;
+        }
+        // branch_blocked_recovery: task branch already exists with blocked_context.
+        // The agent subprocess (start-implementation) will detect blocked_context and
+        // enter recovery mode. Re-read the task YAML so we have the latest state
+        // (claimTask reset to main, so disk reflects remote state after the fetch).
+        emit({ type: "task_blocked_recovery_detected", task_id: task.id, feature_id: featureId });
+        const _recoveredTask = parseYaml(
+          readFileSync(taskYamlAbsPath(workspaceLocalPath, featureId, task.id), "utf-8"),
+        ) as Task;
+        void _recoveredTask; // available for future blocked-context routing
+      } else {
+        emit({ type: "task_claimed", task_id: task.id, feature_id: featureId });
       }
 
-      emit({ type: "task_claimed", task_id: task.id, feature_id: featureId });
+      // ── 5. Open management-repo PR (non-fatal) ───────────────────────────
+      const githubToken = process.env.GITHUB_TOKEN ?? "";
+      if (!githubToken) {
+        emit({ type: "warn_no_github_token", task_id: task.id });
+      } else {
+        try {
+          const mgmtCoords = parseManagementRepoCoords(workspaceLocalPath);
+          await openWorkspacePr({
+            workspaceRoot: workspaceLocalPath,
+            featureId,
+            taskId: task.id,
+            branch: taskBranch,
+            baseBranch: mgmtCoords.baseBranch,
+            githubToken,
+            repoOwner: mgmtCoords.owner,
+            repoName: mgmtCoords.repo,
+            gitAuthorEmail,
+            gitAuthorName,
+            sshKeyPath,
+          });
+          emit({ type: "workspace_pr_opened", task_id: task.id });
+        } catch (e) {
+          emit({ type: "workspace_pr_failed", task_id: task.id, details: String(e) });
+          // Non-fatal — PR failure must not block task execution.
+        }
+      }
 
       // ── 6. Load model policy + resolve task repo path ────────────────────
       const workspaceModelPolicy = loadWorkspaceModelPolicy(workspaceLocalPath);
@@ -243,7 +309,7 @@ async function main(): Promise<number> {
         taskId: task.id,
         featureId,
         taskTitle: task.title,
-        taskBranch: task.branch,
+        taskBranch,
         taskRepo: task.repo,
         taskRepoRoot,
         workspaceRoot: workspaceLocalPath,
@@ -263,7 +329,7 @@ async function main(): Promise<number> {
         maxTokens: config.budget.max_tokens_per_task,
         sshKeyPath,
         gitAuthorEmail,
-        taskBranch: task.branch,
+        taskBranch,
         logSinkEnabled: config.log_sink.enabled,
       });
 
