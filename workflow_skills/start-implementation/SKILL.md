@@ -83,6 +83,33 @@ then repeat steps 2–3.
 
 ---
 
+## Must then implement, self-review, and open the PR
+
+After the branch is created and the `started` log entry is written, proceed directly through the full execution contract **without pausing for human confirmation**:
+
+### Step 1 — Implement
+
+Read the task description and subtasks from `tasks.md` (under `## T<n> — <title>`) and the technical design at `docs/features/<feature_id>/technical-design.md`. Make all required code and documentation changes in the implementation repo. Commit incrementally as logical units. Push each commit to the feature branch.
+
+Update `task.execution.last_updated_by` and `task.execution.last_updated_at` in the task YAML as work progresses.
+
+### Step 2 — Self-review
+
+Invoke `pr-self-review` on the completed branch. Fix any blocking issues found. Re-commit and re-push. Repeat until no blocking issues remain.
+
+### Step 3 — Create PR
+
+Invoke `pr-create` to push the final branch state and open the pull request. The task status will be set to `in_review` by `pr-create`.
+
+### Autonomous execution rules
+
+- Do not ask for confirmation between steps.
+- Do not stop after branch setup and wait.
+- If a blocking issue arises during implementation that cannot be resolved (ambiguous spec, missing dependency, repeated test failure after 3 attempts), set `status: blocked`, write a `blocked_reason` and `suggested_next_step`, append a log entry, and exit — do not open a PR for broken work.
+- All three steps (implement → self-review → PR) are part of a single `/start-implementation` invocation.
+
+---
+
 ## Re-do mode
 
 Triggered when the task status is `in_review` and the PR has been rejected or has review comments to address.
