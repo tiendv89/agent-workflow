@@ -31,7 +31,6 @@ function makeAgentConfig(watches: string[]): AgentConfig {
     budget: {
       max_tokens_per_task: 200000,
       max_iterations: 3,
-      suggested_next_step_max_tokens: 2000,
     },
     log_sink: { enabled: false },
   };

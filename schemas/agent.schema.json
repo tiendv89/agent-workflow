@@ -28,7 +28,7 @@
     "budget": {
       "type": "object",
       "description": "Hard budget limits enforced per task activation.",
-      "required": ["max_tokens_per_task", "max_iterations", "suggested_next_step_max_tokens"],
+      "required": ["max_tokens_per_task", "max_iterations"],
       "additionalProperties": false,
       "properties": {
         "max_tokens_per_task": {
@@ -39,11 +39,6 @@
         "max_iterations": {
           "type": "integer",
           "description": "Maximum tool-use loop iterations per task.",
-          "minimum": 1
-        },
-        "suggested_next_step_max_tokens": {
-          "type": "integer",
-          "description": "Token budget reserved for suggested_next_step synthesis when the agent blocks.",
           "minimum": 1
         }
       }
