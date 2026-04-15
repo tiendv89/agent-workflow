@@ -1,13 +1,15 @@
 /**
- * Tests for T7: git-based claim protocol (claim-task.ts).
+ * Tests for T7/T2: git-based claim protocol (claim-task.ts).
  *
  * Test structure:
  *   1. Unit tests (skipGit: true) — logic without git
  *   2. Integration tests (real local git repos, file:// remote)
- *      a. Single-agent happy path
- *      b. Push-rejection: another agent wins the race
- *      c. 5-agent concurrent-claim simulation on 10 tasks
- *      d. All agents share GIT_AUTHOR_EMAIL — SHA discrimination still works
+ *      a. Single-agent happy path — task committed to task branch
+ *      b. Branch exists + no blocked_context → inherit branch + push wins
+ *      c. Branch exists + blocked_context → returns branch_blocked_recovery
+ *      d. Push rejection: another agent wins the race
+ *      e. 5-agent concurrent-claim simulation on 10 tasks
+ *      f. All agents share GIT_AUTHOR_EMAIL — SHA discrimination still works
  */
 
 import { describe, it, expect, afterEach } from "vitest";
@@ -24,7 +26,7 @@ import { execSync } from "node:child_process";
 import { stringify as yamlStringify, parse as parseYaml } from "yaml";
 import { claimTask } from "../src/claim/claim-task.js";
 import type { ClaimTaskOptions } from "../src/claim/claim-task.js";
-import type { Task } from "../src/types/task.js";
+import type { Task, BlockedContext } from "../src/types/task.js";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -38,6 +40,7 @@ function makeReadyTask(id: string): Task {
     status: "ready",
     depends_on: [],
     blocked_reason: null,
+    blocked_context: null,
     branch: `feature/test-feature-${id}`,
     execution: {
       actor_type: "agent",
@@ -45,6 +48,7 @@ function makeReadyTask(id: string): Task {
       last_updated_at: null,
     },
     pr: { url: "", status: "not_created" },
+    workspace_pr: null,
     log: [
       {
         action: "created",
@@ -52,6 +56,19 @@ function makeReadyTask(id: string): Task {
         at: "2026-04-14T00:00:00Z",
       },
     ],
+  };
+}
+
+function makeBlockedRecoveryTask(id: string): Task {
+  const blockedCtx: BlockedContext = {
+    wip_branch: `feature/test-feature-${id}`,
+    wip_sha: "aabbccdd",
+    pushed_at: "2026-04-14T10:00:00Z",
+  };
+  return {
+    ...makeReadyTask(id),
+    status: "ready",
+    blocked_context: blockedCtx,
   };
 }
 
@@ -107,12 +124,9 @@ const GIT_ENV = {
 
 /**
  * Create a local bare git repository used as the "remote" in integration tests.
- * Returns the absolute path.
  */
 function createBareRepo(): string {
   const dir = trackDir(mkdtempSync(join(tmpdir(), "claim-bare-")));
-  // Use -c init.defaultBranch=main to set the default branch without needing
-  // a subsequent symbolic-ref command (which requires safe.bareRepository=all).
   execSync(`git -c init.defaultBranch=main init --bare "${dir}"`, {
     stdio: "pipe",
   });
@@ -126,14 +140,12 @@ function createBareRepo(): string {
 function createSeededWorkspace(bareDir: string, taskCount: number): string {
   const parentDir = trackDir(mkdtempSync(join(tmpdir(), "claim-seed-parent-")));
   const dir = join(parentDir, "workspace");
-
   const remoteUrl = `file://${bareDir}`;
 
   execSync(`git clone "${remoteUrl}" "${dir}"`, { stdio: "pipe" });
   execSync(`git config user.email "seed@test.com"`, { cwd: dir, stdio: "pipe" });
   execSync(`git config user.name "Seed"`, { cwd: dir, stdio: "pipe" });
 
-  // Create structure
   const tasksDir = join(dir, "docs", "features", FEATURE_ID, "tasks");
   mkdirSync(tasksDir, { recursive: true });
 
@@ -146,22 +158,53 @@ function createSeededWorkspace(bareDir: string, taskCount: number): string {
   }
 
   execSync("git add .", { cwd: dir, stdio: "pipe" });
-  execSync(
-    `git commit -m "initial"`,
-    {
-      cwd: dir,
-      stdio: "pipe",
-      env: { ...process.env, ...GIT_ENV },
-    },
-  );
+  execSync(`git commit -m "initial"`, {
+    cwd: dir,
+    stdio: "pipe",
+    env: { ...process.env, ...GIT_ENV },
+  });
   execSync("git push -u origin main", { cwd: dir, stdio: "pipe" });
 
   return dir;
 }
 
 /**
+ * Create a seeded workspace with a task that has blocked_context set.
+ * The task branch also exists on the bare repo.
+ */
+function createBlockedRecoveryWorkspace(bareDir: string, taskId: string): string {
+  const parentDir = trackDir(mkdtempSync(join(tmpdir(), "claim-seed-blocked-")));
+  const dir = join(parentDir, "workspace");
+  const remoteUrl = `file://${bareDir}`;
+
+  execSync(`git clone "${remoteUrl}" "${dir}"`, { stdio: "pipe" });
+  execSync(`git config user.email "seed@test.com"`, { cwd: dir, stdio: "pipe" });
+  execSync(`git config user.name "Seed"`, { cwd: dir, stdio: "pipe" });
+
+  const tasksDir = join(dir, "docs", "features", FEATURE_ID, "tasks");
+  mkdirSync(tasksDir, { recursive: true });
+
+  // Write task with blocked_context on main
+  const task = makeBlockedRecoveryTask(taskId);
+  writeFileSync(join(tasksDir, `${taskId}.yaml`), yamlStringify(task), "utf-8");
+
+  execSync("git add .", { cwd: dir, stdio: "pipe" });
+  execSync(`git commit -m "initial with blocked_context"`, {
+    cwd: dir, stdio: "pipe", env: { ...process.env, ...GIT_ENV },
+  });
+  execSync("git push -u origin main", { cwd: dir, stdio: "pipe" });
+
+  // Also create the task branch on remote (simulating a prior claim attempt)
+  const branch = `feature/${FEATURE_ID}-${taskId}`;
+  execSync(`git checkout -b "${branch}"`, { cwd: dir, stdio: "pipe" });
+  execSync(`git push origin "${branch}"`, { cwd: dir, stdio: "pipe" });
+  execSync(`git checkout main`, { cwd: dir, stdio: "pipe" });
+
+  return dir;
+}
+
+/**
  * Clone the bare repo into a new temp directory.
- * The resulting directory is a fresh, independent working copy.
  */
 function cloneRepo(bareDir: string): string {
   const parentDir = trackDir(mkdtempSync(join(tmpdir(), "claim-clone-parent-")));
@@ -198,6 +241,22 @@ describe("claimTask — unit (skipGit)", () => {
     expect(task.execution.last_updated_at).toBeTruthy();
     expect(task.log.at(-1)?.action).toBe("claimed");
     expect(task.log.at(-1)?.by).toBe("agent@test.com");
+  });
+
+  it("sets task.branch to taskBranchName(featureId, taskId) on win", async () => {
+    const dir = makeWorkspaceDir([makeReadyTask("T1")]);
+
+    await claimTask({
+      workspaceRoot: dir,
+      taskId: "T1",
+      featureId: FEATURE_ID,
+      gitAuthorEmail: "agent@test.com",
+      skipJitter: true,
+      skipGit: true,
+    });
+
+    const task = readTaskFromDir(dir, "T1");
+    expect(task.branch).toBe(`feature/${FEATURE_ID}-T1`);
   });
 
   it("returns { won: false, reason: task_not_ready } when task is in_progress", async () => {
@@ -280,9 +339,9 @@ describe("claimTask — unit (skipGit)", () => {
 // ── Integration tests (real git) ──────────────────────────────────────────────
 
 describe("claimTask — integration (real git)", () => {
-  it("single agent: happy path — task transitions to in_progress on remote", async () => {
+  it("single agent: happy path — task committed to task branch (not main)", async () => {
     const bare = createBareRepo();
-    const seed = createSeededWorkspace(bare, 1);
+    createSeededWorkspace(bare, 1);
     const clone = cloneRepo(bare);
 
     const result = await claimTask({
@@ -297,11 +356,76 @@ describe("claimTask — integration (real git)", () => {
 
     expect(result.won).toBe(true);
 
-    // Verify the task on the remote (pull into seed and read)
-    execSync("git pull origin main", { cwd: seed, stdio: "pipe" });
-    const task = readTaskFromDir(seed, "T1");
+    // Winner's clone should be on the task branch
+    const currentBranch = execSync(`git -C "${clone}" branch --show-current`, {
+      encoding: "utf-8",
+    }).trim();
+    expect(currentBranch).toBe(`feature/${FEATURE_ID}-T1`);
+
+    // Task YAML on the task branch reflects the claim
+    const task = readTaskFromDir(clone, "T1");
     expect(task.status).toBe("in_progress");
+    expect(task.branch).toBe(`feature/${FEATURE_ID}-T1`);
     expect(task.execution.last_updated_by).toBe("agent1@test.com");
+
+    // main on remote must NOT have the in_progress state (claim is on task branch)
+    const verifyClone = cloneRepo(bare);
+    const mainTask = readTaskFromDir(verifyClone, "T1");
+    expect(mainTask.status).toBe("ready");
+  });
+
+  it("branch exists + no blocked_context → checkout existing branch + push wins", async () => {
+    const bare = createBareRepo();
+    const seed = createSeededWorkspace(bare, 1);
+
+    // Manually create the task branch on the bare repo (simulating an interrupted prior claim)
+    const branch = `feature/${FEATURE_ID}-T1`;
+    execSync(`git -C "${seed}" checkout -b "${branch}"`, { stdio: "pipe" });
+    execSync(`git -C "${seed}" push origin "${branch}"`, { stdio: "pipe" });
+    execSync(`git -C "${seed}" checkout main`, { stdio: "pipe" });
+
+    // Clone and attempt to claim — should detect branch exists + no blocked_context → case b
+    const clone = cloneRepo(bare);
+    const result = await claimTask({
+      workspaceRoot: clone,
+      taskId: "T1",
+      featureId: FEATURE_ID,
+      gitAuthorEmail: "agent@test.com",
+      baseBranch: "main",
+      skipJitter: true,
+    });
+
+    expect(result.won).toBe(true);
+
+    // Should be on the task branch
+    const currentBranch = execSync(`git -C "${clone}" branch --show-current`, {
+      encoding: "utf-8",
+    }).trim();
+    expect(currentBranch).toBe(branch);
+
+    const task = readTaskFromDir(clone, "T1");
+    expect(task.status).toBe("in_progress");
+    expect(task.branch).toBe(branch);
+  });
+
+  it("branch exists + blocked_context non-null → returns branch_blocked_recovery", async () => {
+    const bare = createBareRepo();
+    createBlockedRecoveryWorkspace(bare, "T1");
+    const clone = cloneRepo(bare);
+
+    const result = await claimTask({
+      workspaceRoot: clone,
+      taskId: "T1",
+      featureId: FEATURE_ID,
+      gitAuthorEmail: "agent@test.com",
+      baseBranch: "main",
+      skipJitter: true,
+    });
+
+    expect(result.won).toBe(false);
+    if (!result.won) {
+      expect(result.reason).toBe("branch_blocked_recovery");
+    }
   });
 
   it("push rejection: second agent loses when first already pushed", async () => {
@@ -310,7 +434,6 @@ describe("claimTask — integration (real git)", () => {
     const clone1 = cloneRepo(bare);
     const clone2 = cloneRepo(bare);
 
-    // Agent 1 claims first
     const r1 = await claimTask({
       workspaceRoot: clone1,
       taskId: "T1",
@@ -321,8 +444,10 @@ describe("claimTask — integration (real git)", () => {
     });
     expect(r1.won).toBe(true);
 
-    // Agent 2 still sees T1 as "ready" in its stale local clone (hasn't pulled).
-    // It will commit, push → rejected → lose.
+    // Agent 2 still sees T1 as "ready" in its stale local clone (hasn't fetched).
+    // claimTask fetches first, so it will see the task as ready on main (it is).
+    // But when it tries to push the task branch, the branch already exists with
+    // agent1's commit → push rejected → SHA compare → lost.
     const r2 = await claimTask({
       workspaceRoot: clone2,
       taskId: "T1",
@@ -338,13 +463,12 @@ describe("claimTask — integration (real git)", () => {
     }
   });
 
-  it("loser's clone is reset to origin after push rejection", async () => {
+  it("loser's clone is reset to base branch after push rejection", async () => {
     const bare = createBareRepo();
     createSeededWorkspace(bare, 2);
     const clone1 = cloneRepo(bare);
     const clone2 = cloneRepo(bare);
 
-    // Agent 1 wins T1
     await claimTask({
       workspaceRoot: clone1,
       taskId: "T1",
@@ -354,7 +478,6 @@ describe("claimTask — integration (real git)", () => {
       skipJitter: true,
     });
 
-    // Agent 2 loses T1
     await claimTask({
       workspaceRoot: clone2,
       taskId: "T1",
@@ -364,10 +487,15 @@ describe("claimTask — integration (real git)", () => {
       skipJitter: true,
     });
 
-    // After reset, clone2 should see T1 as in_progress and T2 as ready
+    // After reset, clone2 should be back on main with T1=ready (main was not updated)
+    const currentBranch = execSync(`git -C "${clone2}" branch --show-current`, {
+      encoding: "utf-8",
+    }).trim();
+    expect(currentBranch).toBe("main");
+
     const t1 = readTaskFromDir(clone2, "T1");
     const t2 = readTaskFromDir(clone2, "T2");
-    expect(t1.status).toBe("in_progress");
+    expect(t1.status).toBe("ready"); // main never got the claim commit
     expect(t2.status).toBe("ready");
   });
 
@@ -383,11 +511,8 @@ describe("claimTask — integration (real git)", () => {
         cloneRepo(bare),
       );
 
-      // Map from taskId → email of winner
       const winners = new Map<string, string>();
 
-      // Run until all tasks are claimed.
-      // Each round: each agent tries to claim the first task it sees as ready.
       let maxRounds = TASK_COUNT * (AGENT_COUNT + 1);
       while (winners.size < TASK_COUNT && maxRounds-- > 0) {
         let progress = false;
@@ -397,11 +522,11 @@ describe("claimTask — integration (real git)", () => {
 
           const email = `agent${a + 1}@test.com`;
 
-          // Find the first task this clone sees as ready
           for (let n = 1; n <= TASK_COUNT; n++) {
             const taskId = `T${n}`;
             if (winners.has(taskId)) continue;
 
+            // Re-read from local clone to check if still ready
             const localTask = readTaskFromDir(clones[a], taskId);
             if (localTask.status !== "ready") continue;
 
@@ -415,30 +540,50 @@ describe("claimTask — integration (real git)", () => {
             });
 
             if (result.won) {
-              expect(winners.has(taskId)).toBe(false); // no double-claim
+              expect(winners.has(taskId)).toBe(false);
               winners.set(taskId, email);
               progress = true;
+
+              // Reset winner's clone to main so it can claim the next task
+              execSync(`git -C "${clones[a]}" checkout main`, { stdio: "pipe" });
+              execSync(
+                `git -C "${clones[a]}" reset --hard "origin/main"`,
+                { stdio: "pipe" },
+              );
+            } else if (result.reason !== "task_not_ready") {
+              // Loser: already reset to main by claimTask; sync task status from remote
+              execSync(
+                `git -C "${clones[a]}" fetch origin`,
+                { stdio: "pipe" },
+              );
             }
 
-            break; // one attempt per agent per round
+            break;
           }
         }
 
-        // If no agent made progress this round, break early
         if (!progress) break;
       }
 
-      // All 10 tasks must be claimed
       expect(winners.size).toBe(TASK_COUNT);
 
-      // Verify final state on remote: pull into a fresh clone and check all tasks
-      const verifyDir = cloneRepo(bare);
+      // Verify each task is in_progress on its own task branch
+      const verifyClone = cloneRepo(bare);
+      execSync(`git -C "${verifyClone}" fetch --all`, { stdio: "pipe" });
       for (let n = 1; n <= TASK_COUNT; n++) {
-        const task = readTaskFromDir(verifyDir, `T${n}`);
+        const taskId = `T${n}`;
+        const branch = `feature/${FEATURE_ID}-${taskId}`;
+        // Checkout the task branch and verify the YAML
+        execSync(
+          `git -C "${verifyClone}" checkout "${branch}"`,
+          { stdio: "pipe" },
+        );
+        const task = readTaskFromDir(verifyClone, taskId);
         expect(task.status).toBe("in_progress");
+        expect(task.branch).toBe(branch);
       }
     },
-    30_000, // 30s timeout for git operations
+    30_000,
   );
 
   it(
@@ -474,7 +619,7 @@ describe("claimTask — integration (real git)", () => {
               workspaceRoot: clones[a],
               taskId,
               featureId: FEATURE_ID,
-              gitAuthorEmail: SHARED_EMAIL, // all agents share the same email
+              gitAuthorEmail: SHARED_EMAIL,
               baseBranch: "main",
               skipJitter: true,
             });
@@ -483,6 +628,14 @@ describe("claimTask — integration (real git)", () => {
               expect(winners.has(taskId)).toBe(false);
               winners.set(taskId, SHARED_EMAIL);
               progress = true;
+
+              execSync(`git -C "${clones[a]}" checkout main`, { stdio: "pipe" });
+              execSync(
+                `git -C "${clones[a]}" reset --hard "origin/main"`,
+                { stdio: "pipe" },
+              );
+            } else if (result.reason !== "task_not_ready") {
+              execSync(`git -C "${clones[a]}" fetch origin`, { stdio: "pipe" });
             }
 
             break;
@@ -494,14 +647,19 @@ describe("claimTask — integration (real git)", () => {
 
       expect(winners.size).toBe(TASK_COUNT);
 
-      // Final verification
-      const verifyDir = cloneRepo(bare);
+      const verifyClone = cloneRepo(bare);
+      execSync(`git -C "${verifyClone}" fetch --all`, { stdio: "pipe" });
       for (let n = 1; n <= TASK_COUNT; n++) {
-        const task = readTaskFromDir(verifyDir, `T${n}`);
+        const taskId = `T${n}`;
+        const branch = `feature/${FEATURE_ID}-${taskId}`;
+        execSync(
+          `git -C "${verifyClone}" checkout "${branch}"`,
+          { stdio: "pipe" },
+        );
+        const task = readTaskFromDir(verifyClone, taskId);
         expect(task.status).toBe("in_progress");
       }
     },
     30_000,
   );
 });
-
