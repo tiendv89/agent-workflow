@@ -12,10 +12,11 @@
  */
 
 import { spawnSync, execSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { parse as parseYaml, stringify as yamlStringify } from "yaml";
 import type { Task, BlockedReason } from "../types/task.js";
-import { taskYamlAbsPath, taskYamlRelPath } from "../paths.js";
+import { taskYamlAbsPath, taskYamlRelPath, featureLogsDirPath, logFileRelPath } from "../paths.js";
+import { deriveLogPath, toSafeIso } from "../logging/log-sink.js";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -33,6 +34,9 @@ export interface RunClaudeOpts {
   maxTokens: number;
   sshKeyPath: string | undefined;
   gitAuthorEmail: string;
+  taskBranch: string;
+  /** When true, write captured stdout to the JSONL log file and commit+push. */
+  logSinkEnabled: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -105,6 +109,55 @@ function writeBlockedAndPush(
   execSync("git push origin HEAD", opts);
 }
 
+/**
+ * Write captured claude stdout to the per-run JSONL log file and commit+push.
+ * The file contains: run_started event, raw claude output, run_ended event.
+ * Raw claude output lines are written as-is — they may or may not be JSON.
+ */
+function flushLogAndPush(
+  workspaceRoot: string,
+  featureId: string,
+  taskId: string,
+  taskBranch: string,
+  runStartIso: string,
+  gitAuthorEmail: string,
+  stdout: string,
+  outcome: string,
+  sshKeyPath: string | undefined,
+): void {
+  const logPath = deriveLogPath(workspaceRoot, featureId, taskId, runStartIso);
+  mkdirSync(featureLogsDirPath(workspaceRoot, featureId), { recursive: true });
+
+  // Header event — written synchronously so partial logs are still useful.
+  appendFileSync(
+    logPath,
+    JSON.stringify({ at: runStartIso, by: gitAuthorEmail, type: "run_started" }) + "\n",
+  );
+
+  // Raw claude output (may be plain text or JSON events).
+  if (stdout) {
+    appendFileSync(logPath, stdout);
+    if (!stdout.endsWith("\n")) appendFileSync(logPath, "\n");
+  }
+
+  // Footer event.
+  appendFileSync(
+    logPath,
+    JSON.stringify({ at: new Date().toISOString(), by: gitAuthorEmail, type: "run_ended", details: { outcome } }) + "\n",
+  );
+
+  const logFilename = `${taskId}_${toSafeIso(runStartIso)}.jsonl`;
+  const relPath = logFileRelPath(featureId, logFilename);
+  const sshEnv = sshKeyPath
+    ? { GIT_SSH_COMMAND: `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no` }
+    : {};
+  const env = { ...process.env, ...sshEnv } as NodeJS.ProcessEnv;
+
+  execSync(`git -C "${workspaceRoot}" add "${relPath}"`, { env, stdio: "pipe" });
+  execSync(`git -C "${workspaceRoot}" commit -m "chore: flush task log ${taskId}"`, { env, stdio: "pipe" });
+  execSync(`git -C "${workspaceRoot}" push origin "${taskBranch}"`, { env, stdio: "pipe" });
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**
@@ -122,7 +175,11 @@ export async function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
     maxTokens,
     sshKeyPath,
     gitAuthorEmail,
+    taskBranch,
+    logSinkEnabled,
   } = opts;
+
+  const runStartIso = new Date().toISOString();
 
   // Build subprocess environment — inject SSH command if a key is available.
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -165,28 +222,37 @@ export async function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
   }
 
   // ── Outcome determination ─────────────────────────────────────────────────
+  let result: RunClaudeResult;
+
   let task: Task;
   try {
     task = parseYaml(
       readFileSync(taskYamlAbsPath(workspaceRoot, featureId, taskId), "utf-8"),
     ) as Task;
   } catch (e) {
-    return {
+    result = {
       outcome: "blocked",
       reason: "runtime_error",
       details: `Failed to read task YAML after claude exit: ${String(e)}`,
     };
+    // Log flush is best-effort when the task YAML itself is unreadable.
+    if (logSinkEnabled) {
+      try {
+        flushLogAndPush(workspaceRoot, featureId, taskId, taskBranch, runStartIso, gitAuthorEmail, spawnResult.stdout ?? "", result.outcome, sshKeyPath);
+      } catch (logErr) {
+        emit({ type: "log_flush_failed", task_id: taskId, details: String(logErr) });
+      }
+    }
+    return result;
   }
 
   if (task.status === "in_review") {
-    return { outcome: "in_review" };
-  }
-
-  if (task.status === "blocked") {
+    result = { outcome: "in_review" };
+  } else if (task.status === "blocked") {
     const reason = task.blocked_reason ?? "unknown";
     // Token overage takes precedence over the agent's own blocked_reason.
     if (totalTokens !== undefined && totalTokens > maxTokens) {
-      return {
+      result = {
         outcome: "blocked",
         reason: "budget_exceeded",
         details: {
@@ -195,36 +261,45 @@ export async function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
           original_reason: reason,
         },
       };
+    } else {
+      result = { outcome: "blocked", reason, details: task.blocked_details };
     }
-    return { outcome: "blocked", reason, details: task.blocked_details };
+  } else {
+    // Task is still in_progress — claude exited without completing the task.
+    const note =
+      spawnResult.error
+        ? `process error: ${spawnResult.error.message}`
+        : `task still in_progress after claude exit (code ${spawnResult.status ?? "null"})`;
+
+    emit({ type: "task_blocked", task_id: taskId, reason: "runtime_error", note });
+
+    try {
+      writeBlockedAndPush(workspaceRoot, featureId, taskId, task, "runtime_error", note, gitAuthorEmail, sshKeyPath);
+    } catch (pushErr) {
+      emit({ type: "blocked_push_failed", task_id: taskId, details: String(pushErr) });
+    }
+
+    result = { outcome: "blocked", reason: "runtime_error", details: note };
   }
 
-  // Task is still in_progress — claude exited without completing the task.
-  const note =
-    spawnResult.error
-      ? `process error: ${spawnResult.error.message}`
-      : `task still in_progress after claude exit (code ${spawnResult.status ?? "null"})`;
-
-  emit({ type: "task_blocked", task_id: taskId, reason: "runtime_error", note });
-
-  try {
-    writeBlockedAndPush(
-      workspaceRoot,
-      featureId,
-      taskId,
-      task,
-      "runtime_error",
-      note,
-      gitAuthorEmail,
-      sshKeyPath,
-    );
-  } catch (pushErr) {
-    emit({
-      type: "blocked_push_failed",
-      task_id: taskId,
-      details: String(pushErr),
-    });
+  // ── Flush log to management repo ──────────────────────────────────────────
+  if (logSinkEnabled) {
+    try {
+      flushLogAndPush(
+        workspaceRoot,
+        featureId,
+        taskId,
+        taskBranch,
+        runStartIso,
+        gitAuthorEmail,
+        spawnResult.stdout ?? "",
+        result.outcome,
+        sshKeyPath,
+      );
+    } catch (logErr) {
+      emit({ type: "log_flush_failed", task_id: taskId, details: String(logErr) });
+    }
   }
 
-  return { outcome: "blocked", reason: "runtime_error", details: note };
+  return result;
 }

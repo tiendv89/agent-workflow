@@ -263,6 +263,8 @@ async function main(): Promise<number> {
         maxTokens: config.budget.max_tokens_per_task,
         sshKeyPath,
         gitAuthorEmail,
+        taskBranch: task.branch,
+        logSinkEnabled: config.log_sink.enabled,
       });
 
       emit({ type: "task_run_complete", task_id: task.id, outcome: runResult.outcome });
