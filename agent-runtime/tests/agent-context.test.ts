@@ -119,6 +119,18 @@ describe("generateAgentContext", () => {
     expect(result).toContain("/pr-create");
   });
 
+  it("requires running the test suite before /pr-create", () => {
+    const result = generateAgentContext(BASE_OPTS);
+    // Both test commands must be mentioned
+    expect(result).toContain("npx vitest run");
+    expect(result).toContain("tsc --noEmit");
+    // Test step must appear before /pr-create
+    const testIdx = result.indexOf("npx vitest run");
+    const prCreateIdx = result.indexOf("/pr-create");
+    expect(testIdx).toBeGreaterThanOrEqual(0);
+    expect(testIdx).toBeLessThan(prCreateIdx);
+  });
+
   it("places implementationModel under the ## Model section", () => {
     const result = generateAgentContext(BASE_OPTS);
     const modelIdx = result.indexOf("## Model");
