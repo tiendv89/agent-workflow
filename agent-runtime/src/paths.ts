@@ -95,3 +95,14 @@ export function skillDirPath(workflowRoot: string, slug: string): string {
 export function skillMdAbsPath(workflowRoot: string, slug: string): string {
   return join(workflowRoot, TECHNICAL_SKILLS_DIR, slug, SKILL_MD);
 }
+
+/**
+ * Canonical task branch name: `feature/<featureId>-<taskId>`
+ *
+ * Single source of truth for all branch naming across the runtime.
+ * Both the management-repo claim branch and the implementation-repo
+ * feature branch use this name.
+ */
+export function taskBranchName(featureId: string, taskId: string): string {
+  return `feature/${featureId}-${taskId}`;
+}

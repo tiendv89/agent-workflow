@@ -47,6 +47,20 @@ export interface TaskPr {
   status: PrStatus;
 }
 
+/**
+ * Written by the orchestrator (or agent) when a task transitions to `blocked`.
+ * Captures the exact WIP state so a recovery agent can resume from the same
+ * branch and SHA rather than starting from scratch.
+ */
+export interface BlockedContext {
+  /** Branch name carrying the WIP commits (e.g. `feature/my-feature-T3`). */
+  wip_branch: string;
+  /** HEAD SHA at the time the block was recorded. */
+  wip_sha: string;
+  /** ISO-8601 timestamp with timezone when the branch was last pushed. */
+  pushed_at: string;
+}
+
 /** Full task state as stored in tasks/T<n>.yaml. */
 export interface Task {
   id: string;
@@ -57,8 +71,19 @@ export interface Task {
   blocked_reason: BlockedReason | null;
   /** Structured context for blocked_reason (e.g. current_model for escalation). */
   blocked_details?: string | Record<string, unknown> | null;
+  /**
+   * WIP branch/SHA snapshot written when the task is blocked.
+   * Null when the task has never been blocked, or after a successful completion.
+   */
+  blocked_context: BlockedContext | null;
   branch: string;
   execution: TaskExecution;
+  /** Implementation-repo PR (opened by the agent after work is complete). */
   pr: TaskPr;
+  /**
+   * Management-repo PR opened at claim time (feature branch → main).
+   * Null until the claim commit is pushed and the PR is created.
+   */
+  workspace_pr: TaskPr | null;
   log: TaskLogEntry[];
 }
