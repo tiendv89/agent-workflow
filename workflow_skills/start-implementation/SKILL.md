@@ -48,7 +48,9 @@ When repo access requires SSH:
 
 ## Must then
 
-Resolve the base branch from `workspace.yaml -> repos[].base_branch` for the task's repo (required; unset is an error). Then, for **both** the implementation repo and the management repo:
+Resolve the base branch from `workspace.yaml -> repos[].base_branch` for the task's repo (required; unset is an error).
+
+### Implementation repo
 
 1. **Fetch from remote** — never skip this; a stale local branch is not acceptable:
    ```
@@ -61,19 +63,36 @@ Resolve the base branch from `workspace.yaml -> repos[].base_branch` for the tas
    git checkout <base_branch>
    git reset --hard origin/<base_branch>
    ```
-   **Hard stop** if either command fails (e.g. base branch does not exist on remote, dirty working tree) — set `status: blocked`, set `blocked_reason` to the git error message, append a log entry (action: `blocked`, note: the git error message, timestamp: real local time), and stop. Do not proceed.
+   **Hard stop** if either command fails — set `status: blocked`, set `blocked_reason` to the git error message, append a log entry, and stop.
 
 3. **Create the feature branch**:
    ```
    git checkout -b feature/<feature_id>-<work_id>
    ```
-   **Hard stop** if this fails — set `status: blocked`, set `blocked_reason` to the git error message, append a log entry (action: `blocked`, note: the git error message, timestamp: real local time), and stop. Do not proceed.
+   **Hard stop** if this fails — set `status: blocked`, set `blocked_reason` to the git error message, append a log entry, and stop.
 
-If the feature branch already exists locally (e.g. from a previous aborted attempt), delete it first:
-```
-git branch -D feature/<feature_id>-<work_id>
-```
-then repeat steps 2–3.
+   If the feature branch already exists locally (e.g. from a previous aborted attempt), delete it first:
+   ```
+   git branch -D feature/<feature_id>-<work_id>
+   ```
+   then repeat steps 2–3.
+
+### Management repo
+
+The task branch already exists on the management repo — `claimTask` created and pushed it as part of the claim. Do **not** create it again.
+
+1. **Fetch from remote**:
+   ```
+   git fetch origin
+   ```
+   **Hard stop** if this fails — set `status: blocked`, append a log entry, and stop.
+
+2. **Checkout and hard-reset to the existing task branch**:
+   ```
+   git checkout feature/<feature_id>-<work_id>
+   git reset --hard origin/feature/<feature_id>-<work_id>
+   ```
+   **Hard stop** if either command fails (e.g. branch unexpectedly missing on remote) — set `status: blocked`, append a log entry, and stop. Do not proceed.
 
 ## Must append task log
 
@@ -116,7 +135,29 @@ Invoke `pr-create` to push the final branch state and open the pull request. The
 
 - Do not ask for confirmation between steps.
 - Do not stop after branch setup and wait.
-- If a blocking issue arises during implementation that cannot be resolved (ambiguous spec, missing dependency, repeated test failure after 3 attempts), set `status: blocked`, write a `blocked_reason` and `suggested_next_step`, append a log entry, and exit — do not open a PR for broken work.
+- If a blocking issue arises during implementation that cannot be resolved (ambiguous spec, missing dependency, repeated test failure after 3 attempts), follow the **blocking exit sequence** below and exit — do not open a PR for broken work.
+
+**Blocking exit sequence:**
+1. Commit any partial work on the **implementation repo** task branch:
+   ```
+   git add -A && git commit -m "wip: partial work before block — <brief summary>"
+   git push origin feature/<feature_id>-<work_id>
+   ```
+   If there is nothing to commit (no changes since last commit), skip the commit but still push to ensure the branch is current on remote.
+2. Capture the WIP SHA from the implementation repo:
+   ```
+   git rev-parse HEAD
+   ```
+3. Write `blocked_context` to the task YAML:
+   ```yaml
+   blocked_context:
+     wip_branch: feature/<feature_id>-<work_id>
+     wip_sha: <SHA from step 2>
+     pushed_at: <ISO 8601 timestamp via date +%Y-%m-%dT%H:%M:%S%z>
+   ```
+4. Set `status: blocked`, write `blocked_reason` and `suggested_next_step`, append a `blocked` log entry with a real local timestamp.
+5. Commit and push the updated task YAML to the **management repo** task branch.
+
 - All four steps (implement → self-review → test plan → PR) are part of a single `/start-implementation` invocation.
 
 ---
@@ -178,3 +219,43 @@ Use re-do mode instead of the normal flow when:
 - PR comments addressed (brief summary)
 - actor: resolved `GIT_AUTHOR_EMAIL`
 - timestamp: real local time via `date +%Y-%m-%dT%H:%M:%S%z` — never hardcode
+
+---
+
+## Blocked recovery mode
+
+Triggered when task `status === "ready"` AND `task.blocked_context` is non-null. Use this mode instead of normal branch setup when **both** conditions are true.
+
+### When to use
+
+- task status is `ready`
+- `task.blocked_context` is non-null (a prior run committed partial WIP work)
+
+### Must then (recovery)
+
+1. **Fetch origin on both repos**:
+   ```
+   git fetch origin   # run on both implementation repo and management repo
+   ```
+
+2. **Management repo — checkout the WIP branch**:
+   ```
+   git checkout <blocked_context.wip_branch>
+   git reset --hard origin/<blocked_context.wip_branch>
+   ```
+   **Hard stop** if either command fails — set `status: blocked`, append a log entry, and stop.
+
+3. **Implementation repo — checkout the same WIP branch**:
+   ```
+   git checkout <blocked_context.wip_branch>
+   git reset --hard origin/<blocked_context.wip_branch>
+   ```
+   **Hard stop** if either command fails — set `status: blocked`, append a log entry, and stop.
+
+4. **Read prior context** — read `blocked_reason` and `suggested_next_step` from the task YAML to understand why the prior run stopped. Use this as additional context before continuing implementation.
+
+5. **Append a `recovery_started` log entry** to the task YAML with a real local timestamp. Commit and push this to the management repo task branch.
+
+6. **Proceed with implementation** — continue from where the prior run left off. The partial WIP commits are already on the branch.
+
+7. **On successful PR creation** — set `blocked_context: null` in the task YAML, commit the change, and push to the task branch before the PR is opened.
