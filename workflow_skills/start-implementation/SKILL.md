@@ -54,20 +54,20 @@ Resolve the base branch from `workspace.yaml -> repos[].base_branch` for the tas
    ```
    git fetch origin
    ```
-   **Hard stop** if this fails — set `status: blocked`, set `blocked_reason` to the git error message, append a log entry (action: `blocked`, note: the git error message, timestamp: real UTC), and stop. Do not proceed.
+   **Hard stop** if this fails — set `status: blocked`, set `blocked_reason` to the git error message, append a log entry (action: `blocked`, note: the git error message, timestamp: real local time), and stop. Do not proceed.
 
 2. **Checkout and hard-reset to the remote base branch** — this is the only safe starting point:
    ```
    git checkout <base_branch>
    git reset --hard origin/<base_branch>
    ```
-   **Hard stop** if either command fails (e.g. base branch does not exist on remote, dirty working tree) — set `status: blocked`, set `blocked_reason` to the git error message, append a log entry (action: `blocked`, note: the git error message, timestamp: real UTC), and stop. Do not proceed.
+   **Hard stop** if either command fails (e.g. base branch does not exist on remote, dirty working tree) — set `status: blocked`, set `blocked_reason` to the git error message, append a log entry (action: `blocked`, note: the git error message, timestamp: real local time), and stop. Do not proceed.
 
 3. **Create the feature branch**:
    ```
    git checkout -b feature/<feature_id>-<work_id>
    ```
-   **Hard stop** if this fails — set `status: blocked`, set `blocked_reason` to the git error message, append a log entry (action: `blocked`, note: the git error message, timestamp: real UTC), and stop. Do not proceed.
+   **Hard stop** if this fails — set `status: blocked`, set `blocked_reason` to the git error message, append a log entry (action: `blocked`, note: the git error message, timestamp: real local time), and stop. Do not proceed.
 
 If the feature branch already exists locally (e.g. from a previous aborted attempt), delete it first:
 ```
@@ -79,7 +79,7 @@ then repeat steps 2–3.
 
 - action: started
 - actor: resolved `GIT_AUTHOR_EMAIL`
-- timestamp: real UTC time via `date -u +%Y-%m-%dT%H:%M:%SZ` — never hardcode
+- timestamp: real local time via `date +%Y-%m-%dT%H:%M:%S%z` — never hardcode
 
 ---
 
@@ -177,4 +177,4 @@ Use re-do mode instead of the normal flow when:
 - action: fixed review comments
 - PR comments addressed (brief summary)
 - actor: resolved `GIT_AUTHOR_EMAIL`
-- timestamp: real UTC time via `date -u +%Y-%m-%dT%H:%M:%SZ` — never hardcode
+- timestamp: real local time via `date +%Y-%m-%dT%H:%M:%S%z` — never hardcode
