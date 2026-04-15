@@ -26,7 +26,6 @@ jitter_max_seconds: 15
 budget:
   max_tokens_per_task: 200000
   max_iterations: 3
-  suggested_next_step_max_tokens: 2000
 log_sink:
   enabled: true
 ```
@@ -41,7 +40,6 @@ jitter_max_seconds: 0
 budget:
   max_tokens_per_task: 50000
   max_iterations: 1
-  suggested_next_step_max_tokens: 500
 log_sink:
   enabled: false
 ```
@@ -55,7 +53,6 @@ log_sink:
 | `jitter_max_seconds` | `integer >= 0` | Yes | Max random jitter before claim commit. |
 | `budget.max_tokens_per_task` | `integer >= 1` | Yes | Max tokens per task activation. |
 | `budget.max_iterations` | `integer >= 1` | Yes | Max tool-use loop iterations. |
-| `budget.suggested_next_step_max_tokens` | `integer >= 1` | Yes | Token budget for next-step synthesis on block. |
 | `log_sink.enabled` | `boolean` | Yes | Write JSONL event log per task run. |
 
 ### Why no `skills[]` or `models`?
