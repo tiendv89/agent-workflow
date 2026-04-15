@@ -428,6 +428,151 @@ describe("bootstrap — unit tests (skipGit)", () => {
   });
 });
 
+// ── T2: Impl repo cloning unit tests (skipGit) ───────────────────────────────
+
+describe("bootstrap — impl repo cloning (T2, skipGit)", () => {
+  // Clean up any env vars written by bootstrap between tests.
+  const envVarsToClean: string[] = [];
+
+  afterEach(() => {
+    for (const v of envVarsToClean.splice(0)) {
+      delete process.env[v];
+    }
+  });
+
+  it("sets process.env[VAR] for impl repo with local_path: env:<VAR>", async () => {
+    const tmpDir = makeTempDir();
+
+    const mgmtUrl = "git@github.com:org/workspace.git";
+    const implUrl = "git@github.com:org/impl-repo.git";
+    const implEnvVar = `TEST_IMPL_PATH_${Date.now()}`;
+    envVarsToClean.push(implEnvVar);
+
+    // Seed the management workspace dir with a workspace.yaml
+    const mgmtDir = join(tmpDir, "workspace");
+    mkdirSync(mgmtDir, { recursive: true });
+    writeFileSync(
+      join(mgmtDir, "workspace.yaml"),
+      [
+        "repos:",
+        `  - id: management-repo`,
+        `    github: "${mgmtUrl}"`,
+        `    base_branch: main`,
+        `  - id: impl-repo`,
+        `    github: "${implUrl}"`,
+        `    local_path: "env:${implEnvVar}"`,
+        `    base_branch: main`,
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const workspacesRoot = join(tmpDir, "workspaces");
+    const agentYamlPath = writeAgentYaml(tmpDir, VALID_AGENT_YAML); // watches: org/workspace.git
+
+    const { events, emit } = collectEvents();
+
+    const result = await runBootstrap({
+      agentYamlPath,
+      workflowLocalPath: join(tmpDir, "workflow"),
+      workspacesRoot,
+      workspaceLocalPaths: new Map([[mgmtUrl, mgmtDir]]),
+      skipGit: true,
+      emit,
+    });
+
+    expect(result.exitCode).toBe(EXIT_SUCCESS);
+
+    // Env var must be set to join(workspacesRoot, extractRepoName(implUrl))
+    const expectedPath = join(workspacesRoot, "impl-repo");
+    expect(process.env[implEnvVar]).toBe(expectedPath);
+  });
+
+  it("skips management repos (those matching watches[]) when reading workspace.yaml", async () => {
+    const tmpDir = makeTempDir();
+
+    const mgmtUrl = "git@github.com:org/workspace.git";
+    const implEnvVar = `TEST_MGMT_SKIP_${Date.now()}`;
+    envVarsToClean.push(implEnvVar);
+
+    const mgmtDir = join(tmpDir, "workspace");
+    mkdirSync(mgmtDir, { recursive: true });
+    // workspace.yaml only has the management repo itself
+    writeFileSync(
+      join(mgmtDir, "workspace.yaml"),
+      [
+        "repos:",
+        `  - id: management-repo`,
+        `    github: "${mgmtUrl}"`,
+        `    local_path: "env:${implEnvVar}"`,
+        `    base_branch: main`,
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const agentYamlPath = writeAgentYaml(tmpDir, VALID_AGENT_YAML);
+
+    const { emit } = collectEvents();
+
+    await runBootstrap({
+      agentYamlPath,
+      workflowLocalPath: join(tmpDir, "workflow"),
+      workspacesRoot: join(tmpDir, "workspaces"),
+      workspaceLocalPaths: new Map([[mgmtUrl, mgmtDir]]),
+      skipGit: true,
+      emit,
+    });
+
+    // Management repo URL is in watches[] — env var must NOT be set by the impl loop.
+    expect(process.env[implEnvVar]).toBeUndefined();
+  });
+
+  it("completes successfully when workspace.yaml is absent", async () => {
+    const tmpDir = makeTempDir();
+
+    const mgmtUrl = "git@github.com:org/workspace.git";
+    const mgmtDir = join(tmpDir, "workspace");
+    mkdirSync(mgmtDir, { recursive: true });
+    // No workspace.yaml written
+
+    const agentYamlPath = writeAgentYaml(tmpDir, VALID_AGENT_YAML);
+    const { emit } = collectEvents();
+
+    const result = await runBootstrap({
+      agentYamlPath,
+      workflowLocalPath: join(tmpDir, "workflow"),
+      workspacesRoot: join(tmpDir, "workspaces"),
+      workspaceLocalPaths: new Map([[mgmtUrl, mgmtDir]]),
+      skipGit: true,
+      emit,
+    });
+
+    expect(result.exitCode).toBe(EXIT_SUCCESS);
+  });
+
+  it("completes successfully when workspace.yaml has no repos[]", async () => {
+    const tmpDir = makeTempDir();
+
+    const mgmtUrl = "git@github.com:org/workspace.git";
+    const mgmtDir = join(tmpDir, "workspace");
+    mkdirSync(mgmtDir, { recursive: true });
+    writeFileSync(join(mgmtDir, "workspace.yaml"), "name: my-workspace\n", "utf-8");
+
+    const agentYamlPath = writeAgentYaml(tmpDir, VALID_AGENT_YAML);
+    const { emit } = collectEvents();
+
+    const result = await runBootstrap({
+      agentYamlPath,
+      workflowLocalPath: join(tmpDir, "workflow"),
+      workspacesRoot: join(tmpDir, "workspaces"),
+      workspaceLocalPaths: new Map([[mgmtUrl, mgmtDir]]),
+      skipGit: true,
+      emit,
+    });
+
+    expect(result.exitCode).toBe(EXIT_SUCCESS);
+  });
+});
+
 // ── Integration tests (real git repos) ───────────────────────────────────────
 
 describe("bootstrap — integration tests (real git)", () => {
@@ -680,4 +825,77 @@ log_sink:
     expect(auditEvents[0]!.feature_id).toBe("my-feature");
     expect(auditEvents[0]!.task_id).toBe("T1");
   }, 15_000);
+
+  it("clones impl repo declared in workspace.yaml and sets process.env[VAR]", async () => {
+    const tmpDir = makeTempDir();
+
+    // Create two bare repos: management (watched) and impl
+    const { bareUrl: mgmtUrl } = createBareRepo(tmpDir, "workspace");
+    const { bareUrl: implUrl } = createBareRepo(tmpDir, "impl-repo");
+
+    // Seed the impl repo
+    seedRepo(tmpDir, implUrl, { "README.md": "# impl\n" });
+
+    const implEnvVar = `TEST_IMPL_INTEG_PATH_${Date.now()}`;
+
+    // Seed the management repo with workspace.yaml that declares the impl repo
+    const workspaceYaml = [
+      "repos:",
+      "  - id: management-repo",
+      `    github: "${mgmtUrl}"`,
+      "    base_branch: main",
+      "  - id: impl-repo",
+      `    github: "${implUrl}"`,
+      `    local_path: "env:${implEnvVar}"`,
+      "    base_branch: main",
+    ].join("\n");
+    seedRepo(tmpDir, mgmtUrl, { "workspace.yaml": workspaceYaml });
+
+    const agentYaml = `
+watches:
+  - ${mgmtUrl}
+enabled: true
+jitter_max_seconds: 1
+budget:
+  max_tokens_per_task: 50000
+  max_iterations: 20
+  suggested_next_step_max_tokens: 1000
+log_sink:
+  enabled: true
+`.trim();
+
+    const workflowDir = join(tmpDir, "workflow");
+    mkdirSync(join(workflowDir, "technical_skills"), { recursive: true });
+
+    const agentYamlPath = writeAgentYaml(tmpDir, agentYaml);
+    const workspacesRoot = join(tmpDir, "workspaces");
+    mkdirSync(workspacesRoot, { recursive: true });
+
+    const { events, emit } = collectEvents();
+
+    const result = await runBootstrap({
+      agentYamlPath,
+      workflowLocalPath: workflowDir,
+      workspacesRoot,
+      emit,
+    });
+
+    expect(result.exitCode).toBe(EXIT_SUCCESS);
+
+    // Impl repo must be cloned at join(workspacesRoot, "impl-repo")
+    const expectedImplPath = join(workspacesRoot, "impl-repo");
+    expect(existsSync(join(expectedImplPath, "README.md"))).toBe(true);
+
+    // workspace_cloned event must be emitted for the impl repo
+    const clonedEvents = events.filter(
+      (e) => e.type === "workspace_cloned",
+    ) as Array<{ type: string; workspace_url: string; local_path: string }>;
+    expect(clonedEvents.some((e) => e.workspace_url === implUrl)).toBe(true);
+
+    // process.env[VAR] must be set to the impl repo's local path
+    expect(process.env[implEnvVar]).toBe(expectedImplPath);
+
+    // Cleanup
+    delete process.env[implEnvVar];
+  }, 20_000);
 });

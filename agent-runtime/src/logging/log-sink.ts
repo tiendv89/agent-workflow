@@ -1,6 +1,7 @@
 import { mkdirSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
+import { featureLogsDirPath, logFileRelPath } from "../paths.js";
 
 /** Known top-level fields on a log event. Reject anything outside this set. */
 const KNOWN_FIELDS = new Set([
@@ -114,11 +115,7 @@ export function deriveLogPath(
   runStartIso: string,
 ): string {
   return join(
-    workspaceRoot,
-    "docs",
-    "features",
-    featureId,
-    "logs",
+    featureLogsDirPath(workspaceRoot, featureId),
     `${taskId}_${toSafeIso(runStartIso)}.jsonl`,
   );
 }
@@ -163,9 +160,7 @@ export function openLogSink(opts: OpenLogSinkOptions): LogSink {
   } = opts;
 
   const filePath = deriveLogPath(workspaceRoot, featureId, taskId, runStartIso);
-  mkdirSync(join(workspaceRoot, "docs", "features", featureId, "logs"), {
-    recursive: true,
-  });
+  mkdirSync(featureLogsDirPath(workspaceRoot, featureId), { recursive: true });
 
   // Write run_started synchronously — so even a crashed run leaves a valid partial file.
   appendLine(filePath, {
@@ -220,11 +215,8 @@ export function openLogSink(opts: OpenLogSinkOptions): LogSink {
       if (skipGit) return;
 
       // Commit and push the completed log file as a single atomic batch.
-      const relPath = join(
-        "docs",
-        "features",
+      const relPath = logFileRelPath(
         featureId,
-        "logs",
         `${taskId}_${toSafeIso(runStartIso)}.jsonl`,
       );
       const sshEnv = sshKeyPath

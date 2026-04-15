@@ -23,6 +23,13 @@ import { parse as parseYaml } from "yaml";
 import type { AgentConfig } from "../config/validate-agent-yaml.js";
 import type { Task } from "../types/task.js";
 import { parseTasksMd } from "./parse-tasks-md.js";
+import {
+  workspaceYamlPath,
+  featuresRoot,
+  TASKS_DIR,
+  TASKS_MD,
+  skillDirPath,
+} from "../paths.js";
 
 // ---------------------------------------------------------------------------
 // Workspace config types (minimal — only what the matcher needs)
@@ -60,7 +67,7 @@ function emitSkippedMissingSkill(event: TaskSkippedMissingSkillEvent): void {
 
 /** Parse workspace.yaml from the given workspace root. */
 function loadWorkspaceConfig(workspaceRoot: string): WorkspaceConfig {
-  const yamlPath = join(workspaceRoot, "workspace.yaml");
+  const yamlPath = workspaceYamlPath(workspaceRoot);
   if (!existsSync(yamlPath)) {
     throw new Error(`workspace.yaml not found at ${yamlPath}`);
   }
@@ -69,7 +76,7 @@ function loadWorkspaceConfig(workspaceRoot: string): WorkspaceConfig {
 
 /** Return true if the directory exists (used for skill availability check). */
 function skillDirExists(workflowRoot: string, slug: string): boolean {
-  return existsSync(join(workflowRoot, "technical_skills", slug));
+  return existsSync(skillDirPath(workflowRoot, slug));
 }
 
 /** Return the numeric part of a task ID for sorting (T5 → 5). */
@@ -95,11 +102,11 @@ function loadFeatureTasks(
   featurePath: string,
   featureId: string,
 ): FeatureTaskEntry[] {
-  const tasksDir = join(featurePath, "tasks");
+  const tasksDir = join(featurePath, TASKS_DIR);
   if (!existsSync(tasksDir)) return [];
 
   // Parse tasks.md skill map (may be absent — treated as "all tasks have no skills")
-  const tasksMdPath = join(featurePath, "tasks.md");
+  const tasksMdPath = join(featurePath, TASKS_MD);
   const skillMap = existsSync(tasksMdPath)
     ? parseTasksMd(readFileSync(tasksMdPath, "utf-8"))
     : {};
@@ -133,7 +140,7 @@ function loadFeatureTasks(
  * Returns all task entries found.
  */
 function scanAllFeatures(workspaceRoot: string): FeatureTaskEntry[] {
-  const docsPath = join(workspaceRoot, "docs", "features");
+  const docsPath = featuresRoot(workspaceRoot);
   if (!existsSync(docsPath)) return [];
 
   let featureDirs: string[];

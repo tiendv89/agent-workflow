@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { runBootstrap } from "./bootstrap/bootstrap.js";
 import { resolveSSHKey } from "./resolve-ssh-key.js";
+import { workspaceYamlPath, featuresRoot, taskYamlAbsPath } from "./paths.js";
 import { findEligibleTasks } from "./eligibility/match.js";
 import { claimTask } from "./claim/claim-task.js";
 import { runTask } from "./loop/run-task.js";
@@ -47,30 +48,38 @@ function emit(event: Record<string, unknown>): void {
  * Given a task's repo ID and the workspace.yaml from the management workspace,
  * resolve the local filesystem path where that repo is cloned.
  *
- * Resolution order:
- *   1. `local_path: env:<VAR>` in workspace.yaml → read process.env[<VAR>]
- *   2. Fallback: join(workspacesRoot, repoName-from-github-url)
+ * Bootstrap (step 5b) guarantees that process.env[VAR] is set for every
+ * local_path: env:<VAR> declaration before main() reaches this call.
+ * The fallback join(workspacesRoot, ...) is removed — repos without an env:
+ * declaration are not supported after T2.
  */
 function resolveRepoLocalPath(
   workspaceRoot: string,
   repoId: string,
-  workspacesRoot: string,
 ): string {
   type RepoEntry = { id: string; github: string; local_path?: string };
   const yaml = parseYaml(
-    readFileSync(join(workspaceRoot, "workspace.yaml"), "utf-8"),
+    readFileSync(workspaceYamlPath(workspaceRoot), "utf-8"),
   ) as { repos: RepoEntry[] };
 
   const repo = yaml.repos.find((r) => r.id === repoId);
   if (!repo) throw new Error(`Repo "${repoId}" not found in workspace.yaml`);
 
-  if (repo.local_path?.startsWith("env:")) {
-    const envVar = repo.local_path.slice(4);
-    const val = process.env[envVar];
-    if (val) return val;
+  if (!repo.local_path?.startsWith("env:")) {
+    throw new Error(
+      `Repo "${repoId}" has no "local_path: env:<VAR>" declaration in workspace.yaml. ` +
+      `Bootstrap is responsible for setting the env var before this point.`,
+    );
   }
 
-  return join(workspacesRoot, extractRepoName(repo.github));
+  const envVar = repo.local_path.slice(4);
+  const val = process.env[envVar];
+  if (!val) {
+    throw new Error(
+      `Env var ${envVar} is not set — bootstrap should have populated it for repo "${repoId}".`,
+    );
+  }
+  return val;
 }
 
 /**
@@ -79,7 +88,7 @@ function resolveRepoLocalPath(
  */
 function loadWorkspaceModelPolicy(workspaceRoot: string): ModelPolicy {
   const yaml = parseYaml(
-    readFileSync(join(workspaceRoot, "workspace.yaml"), "utf-8"),
+    readFileSync(workspaceYamlPath(workspaceRoot), "utf-8"),
   ) as { model_policy?: ModelPolicy };
 
   if (yaml.model_policy) return yaml.model_policy;
@@ -102,14 +111,10 @@ function loadWorkspaceModelPolicy(workspaceRoot: string): ModelPolicy {
  * docs/features/<featureId>/tasks/<taskId>.yaml.
  */
 function findFeatureId(workspaceRoot: string, taskId: string): string | null {
-  const featuresRoot = join(workspaceRoot, "docs", "features");
-  if (!existsSync(featuresRoot)) return null;
-  for (const featureId of readdirSync(featuresRoot)) {
-    if (
-      existsSync(
-        join(featuresRoot, featureId, "tasks", `${taskId}.yaml`),
-      )
-    ) {
+  const featuresDir = featuresRoot(workspaceRoot);
+  if (!existsSync(featuresDir)) return null;
+  for (const featureId of readdirSync(featuresDir)) {
+    if (existsSync(taskYamlAbsPath(workspaceRoot, featureId, taskId))) {
       return featureId;
     }
   }
@@ -252,7 +257,6 @@ async function main(): Promise<number> {
       const taskRepoRoot = resolveRepoLocalPath(
         workspaceLocalPath,
         task.repo,
-        workspacesRoot,
       );
 
       // ── 8. Run the task ──────────────────────────────────────────────────

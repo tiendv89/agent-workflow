@@ -29,6 +29,7 @@ import { parseModelOverrides } from "../config/parse-model-overrides.js";
 import { parseTasksMd } from "../eligibility/parse-tasks-md.js";
 import type { LogSink } from "../logging/log-sink.js";
 import type { Task, BlockedReason } from "../types/task.js";
+import { taskYamlAbsPath, taskYamlRelPath, tasksMdAbsPath, skillMdAbsPath } from "../paths.js";
 import type { AgentConfig } from "../config/validate-agent-yaml.js";
 import {
   generateSuggestedNextStep,
@@ -90,31 +91,6 @@ export type RunTaskResult =
       details?: string | Record<string, unknown>;
     };
 
-// ── Path helpers ──────────────────────────────────────────────────────────────
-
-function taskYamlPath(
-  workspaceRoot: string,
-  featureId: string,
-  taskId: string,
-): string {
-  return join(
-    workspaceRoot,
-    "docs",
-    "features",
-    featureId,
-    "tasks",
-    `${taskId}.yaml`,
-  );
-}
-
-function tasksMdFilePath(workspaceRoot: string, featureId: string): string {
-  return join(workspaceRoot, "docs", "features", featureId, "tasks.md");
-}
-
-function skillMdPath(workflowRoot: string, slug: string): string {
-  return join(workflowRoot, "technical_skills", slug, "SKILL.md");
-}
-
 // ── Task YAML helpers ─────────────────────────────────────────────────────────
 
 function loadTaskYaml(
@@ -123,7 +99,7 @@ function loadTaskYaml(
   taskId: string,
 ): Task {
   return parseYaml(
-    readFileSync(taskYamlPath(workspaceRoot, featureId, taskId), "utf-8"),
+    readFileSync(taskYamlAbsPath(workspaceRoot, featureId, taskId), "utf-8"),
   ) as Task;
 }
 
@@ -134,7 +110,7 @@ function saveTaskYaml(
   task: Task,
 ): void {
   writeFileSync(
-    taskYamlPath(workspaceRoot, featureId, taskId),
+    taskYamlAbsPath(workspaceRoot, featureId, taskId),
     yamlStringify(task),
     "utf-8",
   );
@@ -148,13 +124,7 @@ function gitCommitTaskYaml(
   sshKeyPath: string | undefined,
   branch: string,
 ): void {
-  const relPath = join(
-    "docs",
-    "features",
-    featureId,
-    "tasks",
-    `${taskId}.yaml`,
-  );
+  const relPath = taskYamlRelPath(featureId, taskId);
   const sshEnv = sshKeyPath
     ? { GIT_SSH_COMMAND: `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no` }
     : {};
@@ -299,7 +269,7 @@ async function writeSuggestedNextStep(opts: RunTaskOptions): Promise<void> {
   try {
     const task = loadTaskYaml(workspaceRoot, featureId, taskId);
 
-    const mdPath = tasksMdFilePath(workspaceRoot, featureId);
+    const mdPath = tasksMdAbsPath(workspaceRoot, featureId);
     const tasksmdContent = existsSync(mdPath)
       ? readFileSync(mdPath, "utf-8")
       : "";
@@ -835,7 +805,7 @@ async function runTaskInner(opts: RunTaskOptions): Promise<RunTaskResult> {
   const branch = task.branch;
 
   // ── 2. Load tasks.md → parse skills + model overrides ─────────────────────
-  const mdPath = tasksMdFilePath(workspaceRoot, featureId);
+  const mdPath = tasksMdAbsPath(workspaceRoot, featureId);
   const tasksmdContent = existsSync(mdPath)
     ? readFileSync(mdPath, "utf-8")
     : "";
@@ -849,7 +819,7 @@ async function runTaskInner(opts: RunTaskOptions): Promise<RunTaskResult> {
   // ── 3. Load SKILL.md bodies ────────────────────────────────────────────────
   const skillBodies = new Map<string, string>();
   for (const slug of requiredSkills) {
-    const skillPath = skillMdPath(workflowRoot, slug);
+    const skillPath = skillMdAbsPath(workflowRoot, slug);
     if (existsSync(skillPath)) {
       skillBodies.set(slug, readFileSync(skillPath, "utf-8"));
     }
