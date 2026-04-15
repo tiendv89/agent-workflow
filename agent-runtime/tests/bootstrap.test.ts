@@ -44,7 +44,6 @@ jitter_max_seconds: 1
 budget:
   max_tokens_per_task: 50000
   max_iterations: 20
-  suggested_next_step_max_tokens: 1000
 log_sink:
   enabled: true
 `.trim();
@@ -63,7 +62,6 @@ jitter_max_seconds: 1
 budget:
   max_tokens_per_task: 50000
   max_iterations: 20
-  suggested_next_step_max_tokens: 1000
 log_sink:
   enabled: true
 `.trim();
@@ -632,7 +630,6 @@ jitter_max_seconds: 1
 budget:
   max_tokens_per_task: 50000
   max_iterations: 20
-  suggested_next_step_max_tokens: 1000
 log_sink:
   enabled: true
 `.trim();
@@ -697,7 +694,6 @@ jitter_max_seconds: 1
 budget:
   max_tokens_per_task: 50000
   max_iterations: 20
-  suggested_next_step_max_tokens: 1000
 log_sink:
   enabled: true
 `.trim();
@@ -742,7 +738,6 @@ jitter_max_seconds: 1
 budget:
   max_tokens_per_task: 50000
   max_iterations: 20
-  suggested_next_step_max_tokens: 1000
 log_sink:
   enabled: true
 `.trim();
@@ -790,7 +785,6 @@ jitter_max_seconds: 1
 budget:
   max_tokens_per_task: 50000
   max_iterations: 20
-  suggested_next_step_max_tokens: 1000
 log_sink:
   enabled: true
 `.trim();
@@ -859,7 +853,6 @@ jitter_max_seconds: 1
 budget:
   max_tokens_per_task: 50000
   max_iterations: 20
-  suggested_next_step_max_tokens: 1000
 log_sink:
   enabled: true
 `.trim();

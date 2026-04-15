@@ -18,8 +18,6 @@ export interface AgentConfig {
     max_tokens_per_task: number;
     /** Max tool-use loop iterations per task. */
     max_iterations: number;
-    /** @deprecated No longer consumed by the runtime. Accepted for backward compatibility. */
-    suggested_next_step_max_tokens?: number;
   };
   /** Per-run JSONL event log configuration. */
   log_sink: {

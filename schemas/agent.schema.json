@@ -40,11 +40,6 @@
           "type": "integer",
           "description": "Maximum tool-use loop iterations per task.",
           "minimum": 1
-        },
-        "suggested_next_step_max_tokens": {
-          "type": "integer",
-          "description": "Deprecated — no longer consumed by the runtime. Accepted for backward compatibility with existing agent.yaml files.",
-          "minimum": 1
         }
       }
     },

@@ -113,7 +113,6 @@ jitter_max_seconds: 0
 budget:
   max_tokens_per_task: 0
   max_iterations: 1
-  suggested_next_step_max_tokens: 1
 log_sink:
   enabled: true
 `;
@@ -137,7 +136,6 @@ jitter_max_seconds: -1
 budget:
   max_tokens_per_task: 100
   max_iterations: 1
-  suggested_next_step_max_tokens: 1
 log_sink:
   enabled: true
 `;
