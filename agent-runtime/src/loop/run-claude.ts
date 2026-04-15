@@ -73,6 +73,7 @@ function extractTotalTokens(stdout: string): number | undefined {
 /**
  * Write blocked state to the task YAML and commit+push to the management repo.
  * Called only when claude exits without updating the task status (still in_progress).
+ * Writes blocked_context with wip_branch, wip_sha (from git rev-parse HEAD), and pushed_at.
  */
 function writeBlockedAndPush(
   workspaceRoot: string,
@@ -81,12 +82,29 @@ function writeBlockedAndPush(
   task: Task,
   blockedReason: BlockedReason,
   note: string,
+  taskBranch: string,
   gitAuthorEmail: string,
   sshKeyPath: string | undefined,
 ): void {
   const now = new Date().toISOString();
   task.status = "blocked";
   task.blocked_reason = blockedReason;
+
+  let wipSha = "unknown";
+  try {
+    wipSha = execSync(
+      `git -C "${workspaceRoot}" rev-parse HEAD`,
+      { encoding: "utf-8", stdio: "pipe" },
+    ).trim();
+  } catch {
+    // best-effort; leave wipSha as "unknown" if rev-parse fails
+  }
+  task.blocked_context = {
+    wip_branch: taskBranch,
+    wip_sha: wipSha,
+    pushed_at: now,
+  };
+
   task.execution.last_updated_by = gitAuthorEmail;
   task.execution.last_updated_at = now;
   task.log.push({ action: "blocked", by: gitAuthorEmail, at: now, note });
@@ -274,7 +292,7 @@ export async function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
     emit({ type: "task_blocked", task_id: taskId, reason: "runtime_error", note });
 
     try {
-      writeBlockedAndPush(workspaceRoot, featureId, taskId, task, "runtime_error", note, gitAuthorEmail, sshKeyPath);
+      writeBlockedAndPush(workspaceRoot, featureId, taskId, task, "runtime_error", note, taskBranch, gitAuthorEmail, sshKeyPath);
     } catch (pushErr) {
       emit({ type: "blocked_push_failed", task_id: taskId, details: String(pushErr) });
     }
