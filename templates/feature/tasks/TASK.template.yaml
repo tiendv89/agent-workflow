@@ -4,7 +4,8 @@ repo: project-A-api
 status: todo
 depends_on: []
 blocked_reason: null
-branch: feature/FEATURE-001-T1
+blocked_context: null
+branch: ""
 
 execution:
   actor_type: human
@@ -14,6 +15,8 @@ execution:
 pr:
   url: ""
   status: not_created
+
+workspace_pr: null
 
 subtasks:
   - note: Draft task created
