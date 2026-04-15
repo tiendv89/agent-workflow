@@ -12,10 +12,11 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { runBootstrap } from "./bootstrap/bootstrap.js";
+import { resolveSSHKey } from "./resolve-ssh-key.js";
 import { findEligibleTasks } from "./eligibility/match.js";
 import { claimTask } from "./claim/claim-task.js";
 import { runTask } from "./loop/run-task.js";
@@ -148,17 +149,10 @@ async function main(): Promise<number> {
   // Preferred: SSH_PRIVATE_KEY env var (raw PEM) — write to temp file 0400.
   // Fallback:  SSH_KEY_PATH env var pointing to a file already present.
   // Neither:   warn and proceed; SSH-only repos will fail at clone time.
-  let sshKeyPath: string | undefined;
-  const sshPrivateKeyEnv = process.env.SSH_PRIVATE_KEY;
-  if (sshPrivateKeyEnv) {
-    const tempKeyPath = "/tmp/agent_id_rsa";
-    writeFileSync(tempKeyPath, sshPrivateKeyEnv, { mode: 0o400 });
-    sshKeyPath = tempKeyPath;
-  } else if (process.env.SSH_KEY_PATH) {
-    sshKeyPath = process.env.SSH_KEY_PATH;
-  } else {
+  const sshResolution = resolveSSHKey(process.env);
+  const sshKeyPath = sshResolution.sshKeyPath;
+  if (sshResolution.warned) {
     emit({ type: "warn_no_ssh_key", note: "Neither SSH_PRIVATE_KEY nor SSH_KEY_PATH is set. SSH-only git operations will fail." });
-    sshKeyPath = undefined;
   }
 
   // ── 2. Bootstrap ─────────────────────────────────────────────────────────
