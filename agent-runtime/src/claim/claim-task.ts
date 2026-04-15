@@ -1,30 +1,29 @@
 /**
- * T7: Git-based claim protocol with commit-SHA contention detection.
+ * T7/T2: Git-based claim protocol with task-branch creation and SHA contention detection.
  *
- * Atomically claims a `ready` task by mutating the task YAML, committing
- * on the base branch of the workspace (management) repo, and pushing.
+ * The orchestrator creates feature/<featureId>-<taskId> before committing the claim.
+ * The management repo is on the task branch from the moment the claim succeeds.
  *
  * Contention resolution is SHA-based, not identity-based:
- *   - All competing agents commit locally, then race to push.
- *   - First agent to push wins (fast-forward accepted).
- *   - Losers get a non-fast-forward rejection; they fetch the remote HEAD SHA
- *     and compare it to their own commit SHA.
+ *   - Competing agents create the task branch from the same main HEAD and race to push.
+ *   - First push wins (fast-forward). Loser gets a non-fast-forward rejection, fetches,
+ *     and compares SHA with origin/<taskBranch>.
  *   - SHA match  → this agent's commit landed (rebase re-ordered the push) → won.
- *   - SHA differ → another agent's commit is there → lost.
+ *   - SHA differ → another agent's commit is on remote HEAD → lost.
  *
- * This means the protocol is correct even when multiple agents share a single
- * GIT_AUTHOR_EMAIL — identity strings are never compared.
+ * Branch-already-exists handling (re-claim or blocked recovery):
+ *   - blocked_context null:  interrupted prior claim — checkout + reset to origin/<branch>.
+ *   - blocked_context non-null: blocked recovery path — return branch_blocked_recovery.
  *
- * Pre-commit jitter (50–500 ms, bounded by jitter_max_seconds) de-synchronises
- * agents that pull from the same cron tick and reduces the collision rate.
+ * Pre-commit jitter (50–500 ms, bounded by jitter_max_seconds) de-synchronises agents
+ * that pull from the same cron tick and reduces the collision rate.
  */
 
 import { execSync, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { parse as parseYaml, stringify as yamlStringify } from "yaml";
 import type { Task } from "../types/task.js";
-import { taskYamlAbsPath, taskYamlRelPath } from "../paths.js";
+import { taskYamlAbsPath, taskYamlRelPath, taskBranchName } from "../paths.js";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -33,12 +32,12 @@ export interface ClaimTaskOptions {
   workspaceRoot: string;
   /** Task ID to claim (e.g. "T7"). */
   taskId: string;
-  /** Feature directory ID (e.g. "distributed-agent-team"). */
+  /** Feature directory ID (e.g. "task-branch-lifecycle"). */
   featureId: string;
   /**
    * GIT_AUTHOR_EMAIL for the claim commit.
-   * Sourced from the resolved environment by the caller (not read from process.env
-   * directly so the protocol is testable with arbitrary identities).
+   * Sourced from the resolved environment by the caller — not read from process.env
+   * directly so the protocol is testable with arbitrary identities.
    */
   gitAuthorEmail: string;
   /** GIT_AUTHOR_NAME for the claim commit. Defaults to gitAuthorEmail if omitted. */
@@ -52,15 +51,16 @@ export interface ClaimTaskOptions {
    */
   jitterMaxSeconds?: number;
   /**
-   * Base branch of the workspace repo to push the claim commit to.
-   * The claim commit always goes to this branch — not to the task's feature branch.
+   * Base branch of the workspace repo (e.g. "main").
+   * The orchestrator is reset to this branch before claiming, and losers are
+   * reset back to it after a push rejection.
    * Default: "main".
    */
   baseBranch?: string;
   /** Skip the pre-commit jitter sleep. Intended for unit/integration tests. */
   skipJitter?: boolean;
   /**
-   * Skip all git operations (add / commit / push / fetch / reset).
+   * Skip all git operations (fetch / checkout / add / commit / push).
    * The task YAML is still mutated on disk.
    * Intended for unit tests that do not set up a real git repo.
    */
@@ -69,17 +69,18 @@ export interface ClaimTaskOptions {
 
 /**
  * Result returned by claimTask.
- *   won: true  — this agent owns the task; proceed with implementation.
- *   won: false — another agent won the race, or the task was no longer claimable.
+ *   won: true                     — this agent owns the task; proceed with implementation.
+ *   won: false, reason: ...       — claim failed or was lost.
  */
 export type ClaimResult =
   | { won: true }
   | {
       won: false;
       reason:
-        | "task_not_ready"   // task.status !== "ready" when we read it
-        | "push_rejected"    // another agent's commit is on remote HEAD
-        | "post_claim_mismatch"; // won the push but YAML doesn't confirm our claim
+        | "task_not_ready"           // task.status !== "ready" when we read it
+        | "push_rejected"            // another agent's commit is on remote HEAD
+        | "post_claim_mismatch"      // won the push but YAML doesn't confirm our claim
+        | "branch_blocked_recovery"; // task branch exists + blocked_context non-null → S5
     };
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -123,17 +124,34 @@ function buildGitEnv(
   } as NodeJS.ProcessEnv;
 }
 
+/**
+ * Check whether a branch exists on origin.
+ * Uses `git ls-remote --exit-code`: exit 0 = found, exit 2 = not found.
+ */
+function remoteHasBranch(
+  workspaceRoot: string,
+  branch: string,
+  env: NodeJS.ProcessEnv,
+): boolean {
+  const result = spawnSync(
+    "git",
+    ["-C", workspaceRoot, "ls-remote", "--exit-code", "origin", `refs/heads/${branch}`],
+    { env, encoding: "utf-8" },
+  );
+  return result.status === 0;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
  * Attempt to atomically claim a `ready` task.
  *
- * On success, the task YAML on the management repo's base branch is updated
- * with `status: in_progress` and a `claimed` log entry.  The commit SHA is the
- * arbitration token — only the agent whose SHA ends up as remote HEAD is the winner.
+ * On success the management repo's local HEAD is on the task branch
+ * (feature/<featureId>-<taskId>) with the claim commit. The task YAML has
+ * status: in_progress and task.branch set to the canonical task branch name.
  *
  * @returns `{ won: true }` if this agent successfully claimed the task.
- *          `{ won: false, reason }` if the claim failed or was lost to another agent.
+ *          `{ won: false, reason }` if the claim failed or was lost.
  */
 export async function claimTask(opts: ClaimTaskOptions): Promise<ClaimResult> {
   const {
@@ -149,16 +167,79 @@ export async function claimTask(opts: ClaimTaskOptions): Promise<ClaimResult> {
     skipGit = false,
   } = opts;
 
-  // ── 1. Read task from disk; verify it is still ready ────────────────────────
-  // Always read from disk — never rely on a cached in-memory task object.
-  const task = readTask(workspaceRoot, featureId, taskId);
+  const env = buildGitEnv(gitAuthorEmail, gitAuthorName, sshKeyPath);
+
+  // ── 1. Fetch + reset to clean base branch ─────────────────────────────────
+  // Always start from a known-good state so the task YAML reflects the latest
+  // remote state, not a stale local copy.
+  if (!skipGit) {
+    try {
+      execSync(`git -C "${workspaceRoot}" fetch origin`, { env, stdio: "pipe" });
+      execSync(
+        `git -C "${workspaceRoot}" reset --hard "origin/${baseBranch}"`,
+        { env, stdio: "pipe" },
+      );
+    } catch {
+      return { won: false, reason: "push_rejected" };
+    }
+  }
+
+  // ── 2. Read task from disk; verify it is still ready ─────────────────────
+  // `let` so we can rebind after inheriting an existing task branch (case b).
+  let task = readTask(workspaceRoot, featureId, taskId);
   if (task.status !== "ready") {
     return { won: false, reason: "task_not_ready" };
   }
 
-  // ── 2. Pre-commit jitter ────────────────────────────────────────────────────
-  // Sleep a random duration to de-synchronise agents that pulled from the same
-  // cron tick. Bounded by min(500ms, jitterMaxSeconds * 1000).
+  // ── 3. Determine task branch; handle branch-exists cases ─────────────────
+  const branch = taskBranchName(featureId, taskId);
+
+  if (!skipGit) {
+    const branchExists = remoteHasBranch(workspaceRoot, branch, env);
+
+    if (!branchExists) {
+      // Case a: first claim — create the task branch from current HEAD (clean main).
+      try {
+        execSync(
+          `git -C "${workspaceRoot}" checkout -b "${branch}"`,
+          { env, stdio: "pipe" },
+        );
+      } catch {
+        tryResetToRemote(workspaceRoot, baseBranch, env);
+        return { won: false, reason: "push_rejected" };
+      }
+    } else if (!task.blocked_context) {
+      // Case b: branch exists + no blocked_context — interrupted prior claim.
+      // Checkout the existing branch and reset to origin state.
+      try {
+        execSync(
+          `git -C "${workspaceRoot}" checkout "${branch}"`,
+          { env, stdio: "pipe" },
+        );
+        execSync(
+          `git -C "${workspaceRoot}" reset --hard "origin/${branch}"`,
+          { env, stdio: "pipe" },
+        );
+      } catch {
+        tryResetToRemote(workspaceRoot, baseBranch, env);
+        return { won: false, reason: "push_rejected" };
+      }
+      // Re-read YAML from the branch state — another agent may have already
+      // committed a claim here while we were checking. If the task is no longer
+      // "ready" on this branch we lost the race.
+      task = readTask(workspaceRoot, featureId, taskId);
+      if (task.status !== "ready") {
+        tryResetToRemote(workspaceRoot, baseBranch, env);
+        return { won: false, reason: "push_rejected" };
+      }
+    } else {
+      // Case c: branch exists + blocked_context non-null — blocked recovery (S5).
+      // Do not attempt a new claim; the caller handles the recovery flow.
+      return { won: false, reason: "branch_blocked_recovery" };
+    }
+  }
+
+  // ── 4. Pre-commit jitter ──────────────────────────────────────────────────
   if (!skipJitter) {
     const maxMs = Math.min(jitterMaxSeconds * 1000, 500);
     const minMs = 50;
@@ -166,9 +247,10 @@ export async function claimTask(opts: ClaimTaskOptions): Promise<ClaimResult> {
     await sleep(jitterMs);
   }
 
-  // ── 3. Mutate task YAML ─────────────────────────────────────────────────────
+  // ── 5. Mutate task YAML ───────────────────────────────────────────────────
   const now = new Date().toISOString();
   task.status = "in_progress";
+  task.branch = branch;
   task.execution.last_updated_by = gitAuthorEmail;
   task.execution.last_updated_at = now;
   task.log.push({
@@ -183,9 +265,8 @@ export async function claimTask(opts: ClaimTaskOptions): Promise<ClaimResult> {
     return { won: true };
   }
 
-  // ── 4. git add + commit ─────────────────────────────────────────────────────
+  // ── 6. git add + commit ───────────────────────────────────────────────────
   const relPath = taskYamlRelPath(featureId, taskId);
-  const env = buildGitEnv(gitAuthorEmail, gitAuthorName, sshKeyPath);
 
   execSync(`git -C "${workspaceRoot}" add "${relPath}"`, {
     env,
@@ -196,53 +277,46 @@ export async function claimTask(opts: ClaimTaskOptions): Promise<ClaimResult> {
     { env, stdio: "pipe" },
   );
 
-  // Record the commit SHA before pushing — this is the arbitration token.
+  // Record the commit SHA — this is the arbitration token.
   const ourSha = execSync(
     `git -C "${workspaceRoot}" rev-parse HEAD`,
     { env, stdio: "pipe", encoding: "utf-8" },
   ).trim();
 
-  // ── 5. git push ─────────────────────────────────────────────────────────────
-  // Use spawnSync so we can inspect the exit code without throwing.
+  // ── 7. git push to task branch ────────────────────────────────────────────
   const pushResult = spawnSync(
     "git",
-    ["-C", workspaceRoot, "push", "origin", baseBranch],
+    ["-C", workspaceRoot, "push", "origin", branch],
     { env, encoding: "utf-8" },
   );
 
   if (pushResult.status !== 0) {
-    // Push rejected — fetch to see what landed on the remote.
+    // Push rejected — fetch and compare SHA against origin/<branch>.
     try {
       execSync(
-        `git -C "${workspaceRoot}" fetch origin "${baseBranch}"`,
+        `git -C "${workspaceRoot}" fetch origin "${branch}"`,
         { env, stdio: "pipe" },
       );
     } catch {
-      // Fetch failed — assume we lost, clean up local state.
       tryResetToRemote(workspaceRoot, baseBranch, env);
       return { won: false, reason: "push_rejected" };
     }
 
     const remoteHeadSha = execSync(
-      `git -C "${workspaceRoot}" rev-parse "origin/${baseBranch}"`,
+      `git -C "${workspaceRoot}" rev-parse "origin/${branch}"`,
       { env, stdio: "pipe", encoding: "utf-8" },
     ).trim();
 
     if (remoteHeadSha !== ourSha) {
       // Another agent's commit is on the remote — we lost.
-      // Reset local branch to origin so the next claim attempt starts clean.
       tryResetToRemote(workspaceRoot, baseBranch, env);
       return { won: false, reason: "push_rejected" };
     }
 
-    // remoteHeadSha === ourSha: our commit is on the remote despite the initial
-    // rejection (e.g. a concurrent rebase re-ordered the push). We won.
+    // remoteHeadSha === ourSha: our commit landed despite the rejection. We won.
   }
 
-  // ── 6. Post-claim verification ──────────────────────────────────────────────
-  // Re-read the YAML from disk to confirm our mutation is present.
-  // This guards against the rare case where another process modified the file
-  // between our push succeeding and our re-read.
+  // ── 8. Post-claim verification ────────────────────────────────────────────
   const confirmed = readTask(workspaceRoot, featureId, taskId);
   if (
     confirmed.status !== "in_progress" ||
@@ -257,8 +331,8 @@ export async function claimTask(opts: ClaimTaskOptions): Promise<ClaimResult> {
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 /**
- * Best-effort reset of the local branch to match origin.
- * Used after losing a push race so the next claim attempt starts from a clean state.
+ * Best-effort reset of the local repo to origin/<baseBranch>.
+ * Used after losing a push race so the next activation starts from a clean state.
  */
 function tryResetToRemote(
   workspaceRoot: string,
@@ -266,6 +340,10 @@ function tryResetToRemote(
   env: NodeJS.ProcessEnv,
 ): void {
   try {
+    execSync(
+      `git -C "${workspaceRoot}" checkout "${baseBranch}"`,
+      { env, stdio: "pipe" },
+    );
     execSync(
       `git -C "${workspaceRoot}" reset --hard "origin/${baseBranch}"`,
       { env, stdio: "pipe" },
