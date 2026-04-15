@@ -176,6 +176,23 @@ Rules:
 - If `SSH_KEY_PATH` is missing, require the user to provide it
 - If a repo requires SSH auth, the workflow should use the resolved `SSH_KEY_PATH` explicitly
 
+## Git hard-reset safety rule
+
+Before running `git reset --hard`, `git checkout --force`, or any other destructive
+git operation on a repo, the agent **must** run both checks below and **hard-stop**
+if either fails:
+
+1. **Uncommitted changes check** — `git status --short`. If output is non-empty
+   (staged, unstaged, or untracked tracked files), stop. Do not reset.
+2. **Unpushed commits check** — `git log origin/<base_branch>..HEAD --oneline`.
+   If output is non-empty, stop. Do not reset.
+
+On hard-stop, report the exact output of the failing check and wait for the user to
+resolve it (e.g. push, stash, or explicitly confirm discard) before proceeding.
+
+This rule applies to every repo touched in the workflow — implementation repos,
+management repos, and the workflow repo itself.
+
 ## Test-before-PR rule
 
 - **Always run the full test suite before opening a PR.** This applies to every task, every workflow, every agent context.
@@ -189,6 +206,25 @@ Rules:
 - `pr-create` uses the GitHub REST API via `curl` with `GITHUB_TOKEN` from project `.env` — this avoids requiring `gh` to be installed on the host or in agent containers.
 - Any workflow skill or agent that needs to open a PR must invoke `pr-create` rather than calling `gh pr create` directly.
 - `GITHUB_TOKEN` is required in project `.env` for PR creation. If missing, `pr-create` falls back to `~/.config/gh/hosts.yml`.
+
+## PR title convention
+
+PR titles must follow the format:
+
+```
+<type>(<featureId>/T<n>): <short description>
+```
+
+Examples:
+- `feat(task-branch-lifecycle/T1): taskBranchName helper + BlockedContext schema`
+- `fix(agent-runtime-hardening/T3): correct Dockerfile claude CLI install path`
+
+Rules:
+- `<type>` follows conventional commits (`feat`, `fix`, `chore`, `refactor`, `docs`, etc.)
+- `<featureId>` is the feature directory name under `docs/features/`
+- `T<n>` is the task ID
+- Description is lowercase, imperative, no trailing period
+- Keep the full title under 72 characters
 
 ## Shared environment resolution rule
 
