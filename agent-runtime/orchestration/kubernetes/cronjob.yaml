@@ -71,8 +71,9 @@ type: Opaque
 stringData:
   # Anthropic API key — obtain from console.anthropic.com
   ANTHROPIC_API_KEY: "REPLACE_WITH_YOUR_ANTHROPIC_API_KEY"
-  # SSH private key with read/write access to your workspace repo(s)
-  id_rsa: |
+  # SSH private key with read/write access to your workspace repo(s).
+  # Paste the full PEM content (including header/footer lines).
+  SSH_PRIVATE_KEY: |
     REPLACE_WITH_YOUR_SSH_PRIVATE_KEY
 
 ---
@@ -123,12 +124,15 @@ spec:
                     secretKeyRef:
                       name: agent-secrets
                       key: ANTHROPIC_API_KEY
+                - name: SSH_PRIVATE_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: agent-secrets
+                      key: SSH_PRIVATE_KEY
                 - name: GIT_AUTHOR_NAME
                   value: "Agent Bot"
                 - name: GIT_AUTHOR_EMAIL
                   value: "agent@example.com"   # change to your bot email
-                - name: SSH_KEY_PATH
-                  value: /agent/ssh/id_rsa
 
               # ── Volume mounts ──────────────────────────────────────────────
               volumeMounts:
@@ -136,10 +140,6 @@ spec:
                 - name: agent-config
                   mountPath: /agent/agent.yaml
                   subPath: agent.yaml
-                  readOnly: true
-                # SSH key from Secret
-                - name: agent-ssh
-                  mountPath: /agent/ssh
                   readOnly: true
                 # Workspace clones — persisted across activations
                 - name: workspaces
@@ -167,13 +167,6 @@ spec:
             - name: agent-config
               configMap:
                 name: agent-config
-            - name: agent-ssh
-              secret:
-                secretName: agent-secrets
-                items:
-                  - key: id_rsa
-                    path: id_rsa
-                    mode: 0o400   # owner read-only
             - name: workspaces
               persistentVolumeClaim:
                 claimName: agent-workspaces

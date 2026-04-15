@@ -40,20 +40,34 @@ docker buildx build \
 
 ## Optional environment variables
 
-| Variable         | Default        | Description                                    |
-|------------------|----------------|------------------------------------------------|
-| `SSH_KEY_PATH`   | —              | Path to the SSH private key for git operations |
-| `WORKFLOW_URL`   | —              | SSH URL of the workflow repo — cloned on first run if `WORKFLOW_LOCAL_PATH` is empty |
+| Variable           | Default | Description                                                                                             |
+|--------------------|---------|----------------------------------------------------------------------------------------------------------|
+| `SSH_PRIVATE_KEY`  | —       | Raw PEM content of the SSH private key. Written to `/tmp/agent_id_rsa` (0400) at startup. **Preferred** for K8s, GitHub Actions, and CI environments where secrets are env vars. |
+| `SSH_KEY_PATH`     | —       | Path to an SSH private key file already present in the container. Used as fallback when `SSH_PRIVATE_KEY` is not set. Suitable for Docker Compose with `~/.ssh` volume mount. |
+| `WORKFLOW_URL`     | —       | SSH URL of the workflow repo — cloned on first run if `WORKFLOW_LOCAL_PATH` is empty.                   |
 
 ## Volume mounts
 
-| Mount path        | Mode | Description                                         |
-|-------------------|------|-----------------------------------------------------|
-| `/agent/agent.yaml` | ro | Agent configuration file                           |
-| `/agent/data/`    | rw   | Workspace clone root — bootstrap writes here        |
-| `/agent/ssh/`     | ro   | SSH key directory — mount your `~/.ssh` or a secret |
+| Mount path        | Mode | Description                                                                 |
+|-------------------|------|-----------------------------------------------------------------------------|
+| `/agent/agent.yaml` | ro | Agent configuration file                                                   |
+| `/agent/data/`    | rw   | Workspace clone root — bootstrap writes here                                |
+| `/agent/ssh/`     | ro   | SSH key directory — only needed when using `SSH_KEY_PATH` (file-mount mode) |
 
-Typical `docker run`:
+Typical `docker run` (SSH key via env var — preferred):
+
+```bash
+docker run --rm \
+  -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+  -e GIT_AUTHOR_NAME="Agent Bot" \
+  -e GIT_AUTHOR_EMAIL="agent@example.com" \
+  -e SSH_PRIVATE_KEY="$(cat ~/.ssh/id_rsa)" \
+  -v /path/to/agent.yaml:/agent/agent.yaml:ro \
+  -v /path/to/workspaces:/agent/data \
+  ghcr.io/tiendv89/agent-runtime:latest
+```
+
+Alternative — SSH key via file mount (Docker Compose / local use):
 
 ```bash
 docker run --rm \
