@@ -97,16 +97,27 @@ Update `task.execution.last_updated_by` and `task.execution.last_updated_at` in 
 
 Invoke `pr-self-review` on the completed branch. Fix any blocking issues found. Re-commit and re-push. Repeat until no blocking issues remain.
 
-### Step 3 — Create PR
+### Step 3 — Execute the test plan
 
-Invoke `pr-create` to push the final branch state and open the pull request. The task status will be set to `in_review` by `pr-create`.
+Read the test plan from the PR description template or from `tasks.md` under `## T<n>`. Execute every item in the test plan:
+
+- For items that can be run (compile checks, unit tests, linters): run them and record actual output.
+- For items that require code inspection (config file verification, logic traces): read the relevant files and verify each claim explicitly.
+- If a test plan item fails: fix the issue, re-commit, re-push, then re-run the full test plan from scratch.
+- **Hard stop** if a test plan item cannot be made to pass after 3 attempts — set `status: blocked`, write `blocked_reason`, append a log entry, and stop. Do not open a PR for failing tests.
+
+After all items pass, record the results (pass/fail per item, test suite counts if applicable) to post as a PR comment in Step 4.
+
+### Step 4 — Create PR
+
+Invoke `pr-create` to push the final branch state and open the pull request. The task status will be set to `in_review` by `pr-create`. Immediately after the PR is created, post the test plan results as a comment on the PR.
 
 ### Autonomous execution rules
 
 - Do not ask for confirmation between steps.
 - Do not stop after branch setup and wait.
 - If a blocking issue arises during implementation that cannot be resolved (ambiguous spec, missing dependency, repeated test failure after 3 attempts), set `status: blocked`, write a `blocked_reason` and `suggested_next_step`, append a log entry, and exit — do not open a PR for broken work.
-- All three steps (implement → self-review → PR) are part of a single `/start-implementation` invocation.
+- All four steps (implement → self-review → test plan → PR) are part of a single `/start-implementation` invocation.
 
 ---
 
