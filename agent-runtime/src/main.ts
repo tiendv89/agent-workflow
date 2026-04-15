@@ -2,7 +2,7 @@
  * Agent-runtime main entry point.
  *
  * One activation cycle per container run:
- *   bootstrap → eligibility → claim → run-task → flush-logs → exit
+ *   bootstrap → eligibility → claim → run-claude → exit
  *
  * Exit codes mirror the bootstrap convention:
  *   0  normal exit (task ran, idle cycle, or kill-switch off)
@@ -11,7 +11,6 @@
  *   4  unexpected fatal error
  */
 
-import { execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -20,9 +19,10 @@ import { resolveSSHKey } from "./resolve-ssh-key.js";
 import { workspaceYamlPath, featuresRoot, taskYamlAbsPath } from "./paths.js";
 import { findEligibleTasks } from "./eligibility/match.js";
 import { claimTask } from "./claim/claim-task.js";
-import { runTask } from "./loop/run-task.js";
-import { openLogSink } from "./logging/log-sink.js";
-import type { LogSink, RunEndReason } from "./logging/log-sink.js";
+import { generateAgentContext } from "./bootstrap/agent-context.js";
+import { runClaude } from "./loop/run-claude.js";
+import { resolveModel } from "./config/resolve-model-policy.js";
+import { parseModelOverrides } from "./config/parse-model-overrides.js";
 import type { ModelPolicy } from "./config/resolve-model-policy.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -121,17 +121,9 @@ function findFeatureId(workspaceRoot: string, taskId: string): string | null {
   return null;
 }
 
-/** A no-op LogSink for when log_sink.enabled is false. */
-const NULL_LOG_SINK: LogSink = {
-  emit: () => {},
-  close: async (_reason: RunEndReason) => {},
-};
-
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<number> {
-  const runStart = new Date().toISOString();
-
   // ── 1. Read required environment ─────────────────────────────────────────
   let agentYamlPath: string;
   let workflowLocalPath: string;
@@ -176,18 +168,7 @@ async function main(): Promise<number> {
   // Kill switch already handled inside runBootstrap (exits 0).
   // If we get here, config.enabled is true.
 
-  // ── 3. Workflow repo commit SHA (for log sink metadata) ──────────────────
-  let workflowCommitSha = "unknown";
-  try {
-    workflowCommitSha = execSync(
-      `git -C "${workflowLocalPath}" rev-parse HEAD`,
-      { encoding: "utf-8", stdio: "pipe" },
-    ).trim();
-  } catch {
-    // Non-fatal — SHA metadata is cosmetic.
-  }
-
-  // ── 4. Scan watched workspaces for an eligible task ──────────────────────
+  // ── 3. Scan watched workspaces for an eligible task ──────────────────────
   for (const watchUrl of config.watches) {
     const workspaceLocalPath = join(workspacesRoot, extractRepoName(watchUrl));
 
@@ -219,7 +200,7 @@ async function main(): Promise<number> {
         continue;
       }
 
-      // ── 5. Claim ────────────────────────────────────────────────────────
+      // ── 4. Claim ────────────────────────────────────────────────────────
       const claimResult = await claimTask({
         workspaceRoot: workspaceLocalPath,
         taskId: task.id,
@@ -237,51 +218,54 @@ async function main(): Promise<number> {
 
       emit({ type: "task_claimed", task_id: task.id, feature_id: featureId });
 
-      // ── 6. Open log sink ─────────────────────────────────────────────────
-      const logSink: LogSink = config.log_sink.enabled
-        ? openLogSink({
-            workspaceRoot: workspaceLocalPath,
-            featureId,
-            taskId: task.id,
-            runStartIso: runStart,
-            gitAuthorEmail,
-            workflowCommitSha,
-            agentYamlVersion: agentYamlPath,
-            branch: task.branch,
-            sshKeyPath,
-          })
-        : NULL_LOG_SINK;
-
-      // ── 7. Load model policy + resolve task repo path ────────────────────
+      // ── 6. Load model policy + resolve task repo path ────────────────────
       const workspaceModelPolicy = loadWorkspaceModelPolicy(workspaceLocalPath);
-      const taskRepoRoot = resolveRepoLocalPath(
-        workspaceLocalPath,
-        task.repo,
+      const taskRepoRoot = resolveRepoLocalPath(workspaceLocalPath, task.repo);
+
+      // ── 7. Resolve implementation model + parse task-level overrides ─────
+      const tasksMdPath = join(workspaceLocalPath, "docs", "features", featureId, "tasks.md");
+      let taskModelOverrides = {};
+      try {
+        const tasksMdContent = readFileSync(tasksMdPath, "utf-8");
+        taskModelOverrides = parseModelOverrides(tasksMdContent, task.id);
+      } catch {
+        // Non-fatal — use workspace defaults if tasks.md is unreadable.
+      }
+      const implementationModel = resolveModel(
+        workspaceModelPolicy,
+        taskModelOverrides,
+        "implementation",
+        task.id,
       );
 
-      // ── 8. Run the task ──────────────────────────────────────────────────
-      let runResult;
-      try {
-        runResult = await runTask({
-          taskId: task.id,
-          featureId,
-          workspaceRoot: workspaceLocalPath,
-          workflowRoot: workflowLocalPath,
-          taskRepoRoot,
-          agentConfig: config,
-          workspaceModelPolicy,
-          logSink,
-          gitAuthorEmail,
-          sshKeyPath,
-        });
-      } finally {
-        // Always close the log sink — flush on success or error.
-        const reason: RunEndReason =
-          runResult?.outcome === "in_review" ? "done" : "blocked";
-        await logSink.close(reason).catch(() => {
-          // Best-effort flush — never mask the run result.
-        });
-      }
+      // ── 8. Generate agent context ─────────────────────────────────────────
+      const agentContext = generateAgentContext({
+        taskId: task.id,
+        featureId,
+        taskTitle: task.title,
+        taskBranch: task.branch,
+        taskRepo: task.repo,
+        taskRepoRoot,
+        workspaceRoot: workspaceLocalPath,
+        gitAuthorEmail,
+        gitAuthorName,
+        implementationModel,
+      });
+
+      // ── 9. Run claude ─────────────────────────────────────────────────────
+      const runResult = await runClaude({
+        taskId: task.id,
+        featureId,
+        workspaceRoot: workspaceLocalPath,
+        taskRepoRoot,
+        agentContext,
+        maxTurns: config.budget.max_iterations,
+        maxTokens: config.budget.max_tokens_per_task,
+        sshKeyPath,
+        gitAuthorEmail,
+        taskBranch: task.branch,
+        logSinkEnabled: config.log_sink.enabled,
+      });
 
       emit({ type: "task_run_complete", task_id: task.id, outcome: runResult.outcome });
       return 0;
