@@ -66,8 +66,9 @@ log_sink:
 
 ```env
 ANTHROPIC_API_KEY=sk-ant-...
+GITHUB_TOKEN=ghp_...        # GitHub PAT with repo scope — required by pr-create skill
 GIT_AUTHOR_EMAIL=you@example.com
-GITHUB_TOKEN=ghp_...
+GIT_AUTHOR_NAME=Agent Bot
 
 # SSH key — paste the raw PEM content (preferred):
 SSH_PRIVATE_KEY=-----BEGIN OPENSSH PRIVATE KEY-----
@@ -162,6 +163,13 @@ See `orchestration/docker-compose.yml` for the full supervisor configuration, an
 
 **`bootstrap_failed` with `reason: agent_yaml_invalid`**
 Check your `agent.yaml` against `agent.yaml.example` — a missing field (e.g. `jitter_max_seconds`) will cause exit code 2.
+
+**`pr-create` skill fails or PRs are not created**
+The `pr-create` skill requires a GitHub personal access token with `repo` scope.
+Verify:
+- `GITHUB_TOKEN` is set in `.env` (not empty)
+- The token has `repo` scope — the built-in GHA `GITHUB_TOKEN` may lack write access to your target repo; use a dedicated PAT
+- The token has not expired
 
 **`bootstrap_failed` with `reason: git_workspace_sync_failed`**
 The SSH key can't reach your workspace repo. Verify:

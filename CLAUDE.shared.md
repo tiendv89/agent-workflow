@@ -83,7 +83,7 @@ any → cancelled     (human only)
 - Every task state change should be recorded in the task file `log`
 - Both humans and agents append task log entries when they mutate task state
 - Marking a task `done` requires a human log entry
-- **Timestamp rule**: every log entry `at:` field must use a real UTC timestamp obtained at the time of the action via `date -u +%Y-%m-%dT%H:%M:%SZ`. Hardcoded or placeholder timestamps (e.g. `00:00:00Z`) are not acceptable.
+- **Timestamp rule**: every log entry `at:` field must use a real local timestamp with timezone offset obtained at the time of the action via `date +%Y-%m-%dT%H:%M:%S%z`. Hardcoded or placeholder timestamps (e.g. `00:00:00Z`) are not acceptable.
 
 ## Task file scope
 
@@ -202,26 +202,6 @@ At run-task time, the agent reads the declared skills and loads their `SKILL.md`
 
 See `tasks.md`'s `### Required skills` subsection as the source of truth for per-task capability.
 
-```yaml
-role_skill_overrides:
-  backend_engineer:
-    enabled_skills:
-      - go-best-practices
-      - postgres-best-practices
-  frontend_engineer:
-    enabled_skills:
-      - nextjs-best-practices
-      - typescript-best-practices
-      - react-native-mobile-engineer
-      - browser-qa-frontend
-      - heroui-react
-      - figma-mcp
-  data_engineer:
-    enabled_skills:
-      - python-data
-      - python-best-practices
-      - airflow-3
-```
 ## Narrative / state split
 
 Task YAML files (`tasks/T<n>.yaml`) contain only machine-mutable state: `status`, `depends_on`, `blocked_reason`, `branch`, `execution`, `pr`, `log`. Agents read and write these files.

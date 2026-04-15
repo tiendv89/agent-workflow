@@ -32,6 +32,7 @@ docker buildx build \
 | Variable             | Description                                                   |
 |----------------------|---------------------------------------------------------------|
 | `ANTHROPIC_API_KEY`  | Anthropic API key for the SDK loop                           |
+| `GITHUB_TOKEN`       | GitHub personal access token (`repo` scope) — required by the `pr-create` skill to open pull requests via the GitHub REST API |
 | `GIT_AUTHOR_NAME`    | Git commit identity — shown in task log entries              |
 | `GIT_AUTHOR_EMAIL`   | Git commit identity — used as the `by` field in log events   |
 | `AGENT_YAML_PATH`    | Path to `agent.yaml` inside the container (default: `/agent/agent.yaml`) |
@@ -59,6 +60,7 @@ Typical `docker run` (SSH key via env var — preferred):
 ```bash
 docker run --rm \
   -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+  -e GITHUB_TOKEN="$GITHUB_TOKEN" \
   -e GIT_AUTHOR_NAME="Agent Bot" \
   -e GIT_AUTHOR_EMAIL="agent@example.com" \
   -e SSH_PRIVATE_KEY="$(cat ~/.ssh/id_rsa)" \
@@ -72,6 +74,7 @@ Alternative — SSH key via file mount (Docker Compose / local use):
 ```bash
 docker run --rm \
   -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+  -e GITHUB_TOKEN="$GITHUB_TOKEN" \
   -e GIT_AUTHOR_NAME="Agent Bot" \
   -e GIT_AUTHOR_EMAIL="agent@example.com" \
   -e SSH_KEY_PATH="/agent/ssh/id_rsa" \

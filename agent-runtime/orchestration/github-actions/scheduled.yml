@@ -13,6 +13,11 @@
 #
 # Required repository secrets (Settings → Secrets → Actions):
 #   ANTHROPIC_API_KEY   — Anthropic API key
+#   GITHUB_TOKEN        — GitHub PAT with `repo` scope for the pr-create skill.
+#                         Note: the built-in ${{ secrets.GITHUB_TOKEN }} only has
+#                         read access to the target repo in most configurations.
+#                         Create a dedicated PAT at https://github.com/settings/tokens
+#                         and store it as a separate secret (e.g. AGENT_GITHUB_TOKEN).
 #   AGENT_SSH_KEY       — SSH private key (full PEM content, no passphrase)
 #                         Delivered as SSH_PRIVATE_KEY env var — no file staging needed.
 #   AGENT_YAML          — Full content of agent.yaml
@@ -65,6 +70,7 @@ jobs:
         run: |
           docker run --rm \
             -e ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
+            -e GITHUB_TOKEN="${{ secrets.AGENT_GITHUB_TOKEN }}" \
             -e GIT_AUTHOR_NAME="Agent Bot (GHA)" \
             -e GIT_AUTHOR_EMAIL="${{ secrets.GIT_AUTHOR_EMAIL }}" \
             -e SSH_PRIVATE_KEY="${{ secrets.AGENT_SSH_KEY }}" \

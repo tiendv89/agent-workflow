@@ -71,6 +71,9 @@ type: Opaque
 stringData:
   # Anthropic API key — obtain from console.anthropic.com
   ANTHROPIC_API_KEY: "REPLACE_WITH_YOUR_ANTHROPIC_API_KEY"
+  # GitHub personal access token with `repo` scope — required by the pr-create skill.
+  # Create at: https://github.com/settings/tokens
+  GITHUB_TOKEN: "REPLACE_WITH_YOUR_GITHUB_TOKEN"
   # SSH private key with read/write access to your workspace repo(s).
   # Paste the full PEM content (including header/footer lines).
   SSH_PRIVATE_KEY: |
@@ -124,6 +127,11 @@ spec:
                     secretKeyRef:
                       name: agent-secrets
                       key: ANTHROPIC_API_KEY
+                - name: GITHUB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: agent-secrets
+                      key: GITHUB_TOKEN
                 - name: SSH_PRIVATE_KEY
                   valueFrom:
                     secretKeyRef:

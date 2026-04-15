@@ -26,6 +26,7 @@ Type=oneshot
 # Create: sudo install -m 600 -o root /dev/null /etc/agent-runtime/env
 # Then add the following variables:
 #   ANTHROPIC_API_KEY=sk-ant-...
+#   GITHUB_TOKEN=ghp_...        # GitHub PAT with repo scope — required by pr-create skill
 #   GIT_AUTHOR_EMAIL=agent@example.com
 #   GIT_AUTHOR_NAME=Agent Bot
 #
@@ -47,6 +48,7 @@ EnvironmentFile=/etc/agent-runtime/env
 ExecStart=/usr/bin/docker run --rm \
     --name agent-runtime \
     -e ANTHROPIC_API_KEY \
+    -e GITHUB_TOKEN \
     -e GIT_AUTHOR_NAME \
     -e GIT_AUTHOR_EMAIL \
     -e SSH_KEY_PATH=/agent/ssh/id_rsa \
