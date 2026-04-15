@@ -62,6 +62,11 @@ ENV PATH="/usr/local/go/bin:$PATH"
 ENV GOPATH="/go"
 ENV PATH="$GOPATH/bin:$PATH"
 
+# ── Claude CLI ───────────────────────────────────────────────────────────────
+# Required by run-task.ts — spawned as a subprocess for each task activation.
+# GITHUB_TOKEN must be injected at runtime (see DOCKER.md).
+RUN npm install -g @anthropic-ai/claude-code
+
 # ── Workspace layout ──────────────────────────────────────────────────────────
 # Mirror the local repo structure so relative schema paths resolve correctly.
 # validate-agent-yaml.ts resolves: dist/config/../../.. → /workflow/schemas/
