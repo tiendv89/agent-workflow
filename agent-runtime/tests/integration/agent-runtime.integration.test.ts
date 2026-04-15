@@ -183,6 +183,7 @@ function buildWorkspace(
       status: spec.status ?? "ready",
       depends_on: spec.dependsOn ?? [],
       blocked_reason: null,
+      blocked_context: null,
       branch: `feature/${FEATURE_ID}-${spec.id}`,
       execution: {
         actor_type: "agent",
@@ -190,6 +191,7 @@ function buildWorkspace(
         last_updated_at: null,
       },
       pr: { url: "", status: "not_created" },
+      workspace_pr: null,
       log: [],
     };
     writeFileSync(join(tasksDir, `${spec.id}.yaml`), yamlStringify(task), "utf-8");
