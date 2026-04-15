@@ -24,6 +24,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as yamlStringify } from "yaml";
 import type { Task } from "../types/task.js";
+import { taskYamlAbsPath, taskYamlRelPath } from "../paths.js";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -87,38 +88,19 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function taskYamlPath(
-  workspaceRoot: string,
-  featureId: string,
-  taskId: string,
-): string {
-  return join(
-    workspaceRoot,
-    "docs",
-    "features",
-    featureId,
-    "tasks",
-    `${taskId}.yaml`,
-  );
-}
-
-function taskRelPath(featureId: string, taskId: string): string {
-  return join("docs", "features", featureId, "tasks", `${taskId}.yaml`);
-}
-
 function readTask(
   workspaceRoot: string,
   featureId: string,
   taskId: string,
 ): Task {
   return parseYaml(
-    readFileSync(taskYamlPath(workspaceRoot, featureId, taskId), "utf-8"),
+    readFileSync(taskYamlAbsPath(workspaceRoot, featureId, taskId), "utf-8"),
   ) as Task;
 }
 
 function writeTask(workspaceRoot: string, featureId: string, task: Task): void {
   writeFileSync(
-    taskYamlPath(workspaceRoot, featureId, task.id),
+    taskYamlAbsPath(workspaceRoot, featureId, task.id),
     yamlStringify(task),
     "utf-8",
   );
@@ -202,7 +184,7 @@ export async function claimTask(opts: ClaimTaskOptions): Promise<ClaimResult> {
   }
 
   // ── 4. git add + commit ─────────────────────────────────────────────────────
-  const relPath = taskRelPath(featureId, taskId);
+  const relPath = taskYamlRelPath(featureId, taskId);
   const env = buildGitEnv(gitAuthorEmail, gitAuthorName, sshKeyPath);
 
   execSync(`git -C "${workspaceRoot}" add "${relPath}"`, {

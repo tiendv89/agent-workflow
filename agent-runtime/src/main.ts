@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { runBootstrap } from "./bootstrap/bootstrap.js";
 import { resolveSSHKey } from "./resolve-ssh-key.js";
+import { workspaceYamlPath, featuresRoot, taskYamlAbsPath } from "./paths.js";
 import { findEligibleTasks } from "./eligibility/match.js";
 import { claimTask } from "./claim/claim-task.js";
 import { runTask } from "./loop/run-task.js";
@@ -58,7 +59,7 @@ function resolveRepoLocalPath(
 ): string {
   type RepoEntry = { id: string; github: string; local_path?: string };
   const yaml = parseYaml(
-    readFileSync(join(workspaceRoot, "workspace.yaml"), "utf-8"),
+    readFileSync(workspaceYamlPath(workspaceRoot), "utf-8"),
   ) as { repos: RepoEntry[] };
 
   const repo = yaml.repos.find((r) => r.id === repoId);
@@ -87,7 +88,7 @@ function resolveRepoLocalPath(
  */
 function loadWorkspaceModelPolicy(workspaceRoot: string): ModelPolicy {
   const yaml = parseYaml(
-    readFileSync(join(workspaceRoot, "workspace.yaml"), "utf-8"),
+    readFileSync(workspaceYamlPath(workspaceRoot), "utf-8"),
   ) as { model_policy?: ModelPolicy };
 
   if (yaml.model_policy) return yaml.model_policy;
@@ -110,14 +111,10 @@ function loadWorkspaceModelPolicy(workspaceRoot: string): ModelPolicy {
  * docs/features/<featureId>/tasks/<taskId>.yaml.
  */
 function findFeatureId(workspaceRoot: string, taskId: string): string | null {
-  const featuresRoot = join(workspaceRoot, "docs", "features");
-  if (!existsSync(featuresRoot)) return null;
-  for (const featureId of readdirSync(featuresRoot)) {
-    if (
-      existsSync(
-        join(featuresRoot, featureId, "tasks", `${taskId}.yaml`),
-      )
-    ) {
+  const featuresDir = featuresRoot(workspaceRoot);
+  if (!existsSync(featuresDir)) return null;
+  for (const featureId of readdirSync(featuresDir)) {
+    if (existsSync(taskYamlAbsPath(workspaceRoot, featureId, taskId))) {
       return featureId;
     }
   }
