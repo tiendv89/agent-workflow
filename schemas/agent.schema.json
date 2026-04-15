@@ -28,7 +28,7 @@
     "budget": {
       "type": "object",
       "description": "Hard budget limits enforced per task activation.",
-      "required": ["max_tokens_per_task", "max_iterations", "suggested_next_step_max_tokens"],
+      "required": ["max_tokens_per_task", "max_iterations"],
       "additionalProperties": false,
       "properties": {
         "max_tokens_per_task": {
@@ -43,7 +43,7 @@
         },
         "suggested_next_step_max_tokens": {
           "type": "integer",
-          "description": "Token budget reserved for suggested_next_step synthesis when the agent blocks.",
+          "description": "Deprecated — no longer consumed by the runtime. Accepted for backward compatibility with existing agent.yaml files.",
           "minimum": 1
         }
       }

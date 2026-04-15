@@ -25,7 +25,6 @@ describe("validateAgentYaml", () => {
       expect(result.config.jitter_max_seconds).toBe(15);
       expect(result.config.budget.max_tokens_per_task).toBe(200000);
       expect(result.config.budget.max_iterations).toBe(3);
-      expect(result.config.budget.suggested_next_step_max_tokens).toBe(2000);
       expect(result.config.log_sink.enabled).toBe(true);
     });
 

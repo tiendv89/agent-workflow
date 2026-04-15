@@ -1,6 +1,5 @@
 /**
- * Tests for T7: git-based claim protocol (claim-task.ts) and
- * suggested-next-step generator (suggested-next-step.ts).
+ * Tests for T7: git-based claim protocol (claim-task.ts).
  *
  * Test structure:
  *   1. Unit tests (skipGit: true) — logic without git
@@ -9,7 +8,6 @@
  *      b. Push-rejection: another agent wins the race
  *      c. 5-agent concurrent-claim simulation on 10 tasks
  *      d. All agents share GIT_AUTHOR_EMAIL — SHA discrimination still works
- *   3. Suggested-next-step tests (mocked Anthropic)
  */
 
 import { describe, it, expect, afterEach } from "vitest";
@@ -26,10 +24,6 @@ import { execSync } from "node:child_process";
 import { stringify as yamlStringify, parse as parseYaml } from "yaml";
 import { claimTask } from "../src/claim/claim-task.js";
 import type { ClaimTaskOptions } from "../src/claim/claim-task.js";
-import {
-  generateSuggestedNextStep,
-  type SuggestedNextStepClient,
-} from "../src/claim/suggested-next-step.js";
 import type { Task } from "../src/types/task.js";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -511,143 +505,3 @@ describe("claimTask — integration (real git)", () => {
   );
 });
 
-// ── Suggested-next-step tests ─────────────────────────────────────────────────
-
-describe("generateSuggestedNextStep", () => {
-  function makeBlockedTask(reason: Task["blocked_reason"]): Task {
-    const t = makeReadyTask("T7");
-    t.status = "blocked";
-    t.blocked_reason = reason;
-    return t;
-  }
-
-  function makeMockClient(responseText: string): SuggestedNextStepClient {
-    return {
-      messages: {
-        async create() {
-          return {
-            content: [{ type: "text", text: responseText }],
-          };
-        },
-      },
-    };
-  }
-
-  it("returns the model's text response for a blocked task", async () => {
-    const task = makeBlockedTask("budget_exceeded");
-    const client = makeMockClient("Increase the token budget in workspace.yaml.");
-
-    const hint = await generateSuggestedNextStep({
-      task,
-      anthropicClient: client,
-      model: "claude-haiku-4-5-20251001",
-      maxTokens: 100,
-    });
-
-    expect(hint).toBe("Increase the token budget in workspace.yaml.");
-  });
-
-  it("includes task description in prompt context when provided", async () => {
-    const task = makeBlockedTask("iteration_cap_exceeded");
-    let capturedPrompt = "";
-
-    const client: SuggestedNextStepClient = {
-      messages: {
-        async create(params) {
-          capturedPrompt = params.messages[0].content;
-          return { content: [{ type: "text", text: "Raise iteration cap." }] };
-        },
-      },
-    };
-
-    await generateSuggestedNextStep({
-      task,
-      taskDescription: "Implement the foo pipeline.",
-      anthropicClient: client,
-    });
-
-    expect(capturedPrompt).toContain("Implement the foo pipeline.");
-  });
-
-  it("returns fallback string when client throws", async () => {
-    const task = makeBlockedTask("runtime_error");
-
-    const failingClient: SuggestedNextStepClient = {
-      messages: {
-        async create() {
-          throw new Error("network error");
-        },
-      },
-    };
-
-    const hint = await generateSuggestedNextStep({
-      task,
-      anthropicClient: failingClient,
-    });
-
-    // Fallback should mention task ID and reason
-    expect(hint).toContain("T7");
-    expect(hint).toContain("runtime_error");
-  });
-
-  it("returns fallback string when response has no text block", async () => {
-    const task = makeBlockedTask("no_progress");
-
-    const weirdClient: SuggestedNextStepClient = {
-      messages: {
-        async create() {
-          return { content: [] }; // empty content
-        },
-      },
-    };
-
-    const hint = await generateSuggestedNextStep({
-      task,
-      anthropicClient: weirdClient,
-    });
-
-    expect(hint).toContain("T7");
-    expect(hint).toContain("no_progress");
-  });
-
-  it("includes blocked_details in the prompt when present", async () => {
-    const task = makeBlockedTask("model_escalation_requested");
-    task.blocked_details = { current_model: "claude-sonnet-4-6", iterations: 10 };
-    let capturedPrompt = "";
-
-    const client: SuggestedNextStepClient = {
-      messages: {
-        async create(params) {
-          capturedPrompt = params.messages[0].content;
-          return { content: [{ type: "text", text: "Escalate to Opus." }] };
-        },
-      },
-    };
-
-    await generateSuggestedNextStep({ task, anthropicClient: client });
-
-    expect(capturedPrompt).toContain("current_model");
-  });
-
-  it("uses the provided model when specified", async () => {
-    const task = makeBlockedTask("skill_missing");
-    let usedModel = "";
-
-    const client: SuggestedNextStepClient = {
-      messages: {
-        async create(params) {
-          usedModel = params.model;
-          return { content: [{ type: "text", text: "Add the skill." }] };
-        },
-      },
-    };
-
-    await generateSuggestedNextStep({
-      task,
-      anthropicClient: client,
-      model: "claude-haiku-4-5-20251001",
-    });
-
-    expect(usedModel).toBe("claude-haiku-4-5-20251001");
-  });
-});
