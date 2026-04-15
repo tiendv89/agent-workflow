@@ -24,11 +24,25 @@ Type=oneshot
 
 # Load secrets from a protected env file.
 # Create: sudo install -m 600 -o root /dev/null /etc/agent-runtime/env
-# Then add:  ANTHROPIC_API_KEY=sk-ant-...  GIT_AUTHOR_EMAIL=...  etc.
+# Then add the following variables:
+#   ANTHROPIC_API_KEY=sk-ant-...
+#   GIT_AUTHOR_EMAIL=agent@example.com
+#   GIT_AUTHOR_NAME=Agent Bot
+#
+# SSH key — systemd EnvironmentFile does NOT support multi-line values,
+# so a PEM key cannot be pasted directly as SSH_PRIVATE_KEY.
+# Recommended: use SSH_KEY_PATH pointing to a key file on disk.
+#   SSH_KEY_PATH=/etc/agent-runtime/ssh/id_rsa
+# The key file must be mode 400, readable by the user running the service.
+#
+# Alternative (advanced): encode the key on one line and decode in the container.
+#   SSH_PRIVATE_KEY=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' ~/.ssh/id_rsa)
+# Then the container runtime detects the escape sequences and reformats the key.
+# This requires runtime support — not yet implemented; use SSH_KEY_PATH instead.
 EnvironmentFile=/etc/agent-runtime/env
 
 # Agent configuration lives at /etc/agent-runtime/agent.yaml
-# SSH key lives at /etc/agent-runtime/ssh/id_rsa  (mode 400, root-owned)
+# SSH key lives at /etc/agent-runtime/ssh/id_rsa  (mode 400)
 
 ExecStart=/usr/bin/docker run --rm \
     --name agent-runtime \

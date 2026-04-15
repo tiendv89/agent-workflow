@@ -8,6 +8,7 @@ Run two agents locally against your workspace in under 10 minutes.
 - Docker Compose v2 (`docker compose version`)
 - An SSH key with read/write access to your workspace repo(s)
 - An Anthropic API key
+- A GitHub personal access token (`GITHUB_TOKEN`) with `repo` scope — needed by the `pr-create` skill
 
 ## 1. Build the image
 
@@ -66,6 +67,15 @@ log_sink:
 ```env
 ANTHROPIC_API_KEY=sk-ant-...
 GIT_AUTHOR_EMAIL=you@example.com
+GITHUB_TOKEN=ghp_...
+
+# SSH key — paste the raw PEM content (preferred):
+SSH_PRIVATE_KEY=-----BEGIN OPENSSH PRIVATE KEY-----
+...
+-----END OPENSSH PRIVATE KEY-----
+
+# Or point to a key file inside the container (file-mount mode):
+# SSH_KEY_DIR=~/.ssh
 ```
 
 ## 3. Run two agents
@@ -155,7 +165,8 @@ Check your `agent.yaml` against `agent.yaml.example` — a missing field (e.g. `
 
 **`bootstrap_failed` with `reason: git_workspace_sync_failed`**
 The SSH key can't reach your workspace repo. Verify:
-- `SSH_KEY_DIR` in `.env` points to a directory containing `id_rsa`
+- `SSH_PRIVATE_KEY` in `.env` contains the full PEM key (including `-----BEGIN` / `-----END` lines)
+- Or `SSH_KEY_DIR` points to a directory containing `id_rsa` (file-mount mode)
 - The key is added to your GitHub account
 - The URL in `agent.yaml` `watches:` is an SSH URL (`git@github.com:...`)
 

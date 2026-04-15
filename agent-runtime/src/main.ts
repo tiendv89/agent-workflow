@@ -16,6 +16,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { runBootstrap } from "./bootstrap/bootstrap.js";
+import { resolveSSHKey } from "./resolve-ssh-key.js";
 import { findEligibleTasks } from "./eligibility/match.js";
 import { claimTask } from "./claim/claim-task.js";
 import { runTask } from "./loop/run-task.js";
@@ -143,7 +144,16 @@ async function main(): Promise<number> {
   }
 
   const gitAuthorName = process.env.GIT_AUTHOR_NAME ?? gitAuthorEmail;
-  const sshKeyPath = process.env.SSH_KEY_PATH;
+
+  // ── SSH key resolution (D1) ───────────────────────────────────────────────
+  // Preferred: SSH_PRIVATE_KEY env var (raw PEM) — write to temp file 0400.
+  // Fallback:  SSH_KEY_PATH env var pointing to a file already present.
+  // Neither:   warn and proceed; SSH-only repos will fail at clone time.
+  const sshResolution = resolveSSHKey(process.env);
+  const sshKeyPath = sshResolution.sshKeyPath;
+  if (sshResolution.warned) {
+    emit({ type: "warn_no_ssh_key", note: "Neither SSH_PRIVATE_KEY nor SSH_KEY_PATH is set. SSH-only git operations will fail." });
+  }
 
   // ── 2. Bootstrap ─────────────────────────────────────────────────────────
   const bootstrapResult = await runBootstrap({
