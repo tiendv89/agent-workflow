@@ -21,6 +21,7 @@
 import { execSync } from "node:child_process";
 import { existsSync, readdirSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { loadAgentYaml, type AgentConfig } from "../config/validate-agent-yaml.js";
 import { parseTasksMd } from "../eligibility/parse-tasks-md.js";
 
@@ -355,6 +356,76 @@ export async function runBootstrap(opts: BootstrapOptions): Promise<BootstrapRes
             at: new Date().toISOString(),
           });
           return { exitCode: EXIT_GIT_FAILED };
+        }
+      }
+    }
+
+    // ── 5b. Clone / pull implementation repos from workspace.yaml ────────────
+    // For each watched management workspace, read workspace.yaml and clone every
+    // repo that is NOT itself a management repo (i.e. not already in watches[]).
+    // Also sets process.env[VAR] for every local_path: env:<VAR> declaration so
+    // that resolveRepoLocalPath in main.ts can do a simple env-var lookup.
+    //
+    // Non-fatal if workspace.yaml is absent or has no repos[] — management-only
+    // workspaces are valid.
+    {
+      type WorkspaceRepoEntry = {
+        id: string;
+        github: string;
+        local_path?: string;
+        base_branch?: string;
+      };
+
+      const watchUrlSet = new Set(config.watches);
+
+      for (const watchUrl of config.watches) {
+        const mgmtLocalPath = resolveLocalPath(watchUrl, workspacesRoot, workspaceLocalPaths);
+        const workspaceYamlPath = join(mgmtLocalPath, "workspace.yaml");
+
+        if (!existsSync(workspaceYamlPath)) continue;
+
+        let repos: WorkspaceRepoEntry[];
+        try {
+          const parsed = parseYaml(readFileSync(workspaceYamlPath, "utf-8")) as {
+            repos?: WorkspaceRepoEntry[];
+          };
+          repos = parsed.repos ?? [];
+        } catch {
+          continue; // Unreadable or malformed workspace.yaml — skip silently.
+        }
+
+        for (const repo of repos) {
+          // Skip management repos — already handled in step 5.
+          if (watchUrlSet.has(repo.github)) continue;
+
+          const localPath = join(workspacesRoot, extractRepoName(repo.github));
+          const branch = repo.base_branch ?? workspaceBaseBranch;
+
+          if (!skipGit) {
+            try {
+              const action = syncRepo(repo.github, localPath, branch, gitEnv);
+              emit({
+                type: action === "cloned" ? "workspace_cloned" : "workspace_pulled",
+                workspace_url: repo.github,
+                local_path: localPath,
+                at: new Date().toISOString(),
+              });
+            } catch (e) {
+              emit({
+                type: "bootstrap_failed",
+                reason: "git_impl_repo_sync_failed",
+                details: `Failed to sync impl repo ${repo.github}: ${(e as Error).message}`,
+                at: new Date().toISOString(),
+              });
+              return { exitCode: EXIT_GIT_FAILED };
+            }
+          }
+
+          // Populate env var so resolveRepoLocalPath can do a plain env lookup.
+          if (repo.local_path?.startsWith("env:")) {
+            const varName = repo.local_path.slice(4);
+            process.env[varName] = localPath;
+          }
         }
       }
     }

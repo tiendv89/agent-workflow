@@ -47,14 +47,14 @@ function emit(event: Record<string, unknown>): void {
  * Given a task's repo ID and the workspace.yaml from the management workspace,
  * resolve the local filesystem path where that repo is cloned.
  *
- * Resolution order:
- *   1. `local_path: env:<VAR>` in workspace.yaml → read process.env[<VAR>]
- *   2. Fallback: join(workspacesRoot, repoName-from-github-url)
+ * Bootstrap (step 5b) guarantees that process.env[VAR] is set for every
+ * local_path: env:<VAR> declaration before main() reaches this call.
+ * The fallback join(workspacesRoot, ...) is removed — repos without an env:
+ * declaration are not supported after T2.
  */
 function resolveRepoLocalPath(
   workspaceRoot: string,
   repoId: string,
-  workspacesRoot: string,
 ): string {
   type RepoEntry = { id: string; github: string; local_path?: string };
   const yaml = parseYaml(
@@ -64,13 +64,21 @@ function resolveRepoLocalPath(
   const repo = yaml.repos.find((r) => r.id === repoId);
   if (!repo) throw new Error(`Repo "${repoId}" not found in workspace.yaml`);
 
-  if (repo.local_path?.startsWith("env:")) {
-    const envVar = repo.local_path.slice(4);
-    const val = process.env[envVar];
-    if (val) return val;
+  if (!repo.local_path?.startsWith("env:")) {
+    throw new Error(
+      `Repo "${repoId}" has no "local_path: env:<VAR>" declaration in workspace.yaml. ` +
+      `Bootstrap is responsible for setting the env var before this point.`,
+    );
   }
 
-  return join(workspacesRoot, extractRepoName(repo.github));
+  const envVar = repo.local_path.slice(4);
+  const val = process.env[envVar];
+  if (!val) {
+    throw new Error(
+      `Env var ${envVar} is not set — bootstrap should have populated it for repo "${repoId}".`,
+    );
+  }
+  return val;
 }
 
 /**
@@ -252,7 +260,6 @@ async function main(): Promise<number> {
       const taskRepoRoot = resolveRepoLocalPath(
         workspaceLocalPath,
         task.repo,
-        workspacesRoot,
       );
 
       // ── 8. Run the task ──────────────────────────────────────────────────
