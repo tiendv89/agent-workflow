@@ -121,6 +121,19 @@ type RequireExactlyOne<T, Keys extends keyof T = keyof T> =
 - Ignore compiler performance warnings
 - Skip declaration file generation
 - Use enums (prefer const objects with `as const`)
+- Hardcode workflow artifact paths or filenames inline — define them in a central constants module
+
+### No hardcoded workflow artifact paths
+
+Any string that names a workflow-specific file, directory, or path segment (`"workspace.yaml"`, `"docs/features"`, `"tasks"`, `"tasks.md"`, `"logs"`, `"technical_skills"`, `"SKILL.md"`, etc.) **must not** appear as a literal anywhere in source code. Instead:
+
+1. Define the string as a named export in a dedicated constants/paths module (e.g. `src/paths.ts`).
+2. Import and use the named constant or path-builder helper everywhere.
+3. If a new workflow artifact is introduced, add its name to `src/paths.ts` first, then use it.
+
+**Why:** Inline literals create silent inconsistencies when the workspace layout changes — a single rename breaks multiple files with no compiler error. Named constants make the layout contract explicit and changes mechanical.
+
+**How to apply:** Before writing any `join(root, "some-dir", "some-file")` expression, check whether `"some-dir"` or `"some-file"` is a workflow concept. If yes, look it up in `src/paths.ts` and use the appropriate constant or helper. If it isn't there yet, add it first.
 
 ## Output Templates
 
