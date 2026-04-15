@@ -124,8 +124,6 @@ function findFeatureId(workspaceRoot: string, taskId: string): string | null {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<number> {
-  const runStart = new Date().toISOString();
-
   // ── 1. Read required environment ─────────────────────────────────────────
   let agentYamlPath: string;
   let workflowLocalPath: string;
@@ -202,7 +200,7 @@ async function main(): Promise<number> {
         continue;
       }
 
-      // ── 5. Claim ────────────────────────────────────────────────────────
+      // ── 4. Claim ────────────────────────────────────────────────────────
       const claimResult = await claimTask({
         workspaceRoot: workspaceLocalPath,
         taskId: task.id,
