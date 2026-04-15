@@ -95,7 +95,10 @@ docker run --rm \
 
 ## Single-run semantics
 
-The container performs **one activation cycle** and exits. Scheduling (cron, k8s CronJob, systemd timer) is external — see `orchestration/` for templates.
+The container performs **one activation cycle** and exits. Looping is external:
+
+- **Local**: `orchestration/local/docker-compose.yml` uses `restart: unless-stopped` — Docker Compose re-runs the container after each exit.
+- **Production**: use a cron, k8s CronJob, or systemd timer — see `orchestration/kubernetes/`, `orchestration/systemd/`, and `orchestration/github-actions/` for templates.
 
 Sequence per run:
 

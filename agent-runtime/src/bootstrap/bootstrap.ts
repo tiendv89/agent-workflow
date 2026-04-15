@@ -179,7 +179,8 @@ function resolveLocalPath(
 
 /**
  * Clone or pull a single git repository.
- * Clone if the local path has no .git directory; fetch+reset otherwise.
+ * - Already a git repo  → fetch + reset --hard to origin/<baseBranch>.
+ * - Directory absent (or empty)  → mkdirSync + git clone.
  * Returns "cloned" | "pulled".
  */
 function syncRepo(
@@ -395,6 +396,8 @@ export async function runBootstrap(opts: BootstrapOptions): Promise<BootstrapRes
         }
 
         for (const repo of repos) {
+          // Skip entries with no URL (malformed workspace.yaml row).
+          if (!repo.github) continue;
           // Skip management repos — already handled in step 5.
           if (watchUrlSet.has(repo.github)) continue;
 

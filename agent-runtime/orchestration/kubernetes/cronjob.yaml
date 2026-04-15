@@ -151,6 +151,9 @@ spec:
                 # Workspace clones — persisted across activations
                 - name: workspaces
                   mountPath: /agent/data
+                # Workflow clone — ephemeral per activation (re-cloned each run)
+                - name: workflow
+                  mountPath: /agent/workflow
 
               # ── Resource limits ────────────────────────────────────────────
               resources:
@@ -177,3 +180,5 @@ spec:
             - name: workspaces
               persistentVolumeClaim:
                 claimName: agent-workspaces
+            - name: workflow
+              emptyDir: {}

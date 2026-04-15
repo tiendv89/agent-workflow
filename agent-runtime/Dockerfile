@@ -88,7 +88,7 @@ RUN chmod +x ./scripts/run-once.sh
 # ── Container contract ────────────────────────────────────────────────────────
 # Required env vars — see DOCKER.md for full documentation.
 ENV AGENT_YAML_PATH="/agent/agent.yaml"
-ENV WORKFLOW_LOCAL_PATH="/workflow"
+ENV WORKFLOW_LOCAL_PATH="/agent/workflow"
 ENV WORKSPACES_ROOT="/agent/data"
 
 # Volume mounts (documented in DOCKER.md):

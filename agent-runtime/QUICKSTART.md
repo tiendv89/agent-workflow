@@ -10,33 +10,10 @@ Run two agents locally against your workspace in under 10 minutes.
 - An Anthropic API key
 - A GitHub personal access token (`GITHUB_TOKEN`) with `repo` scope — needed by the `pr-create` skill
 
-## 1. Build the image
-
-Run from the **`workflow/` root** (one level above `agent-runtime/`):
+## 1. Configure
 
 ```bash
-# Standard build (amd64)
-docker build -f agent-runtime/Dockerfile -t agent-runtime:local .
-
-# If Go 1.25 is not yet published on go.dev/dl, override the version:
-docker build -f agent-runtime/Dockerfile \
-  --build-arg GO_VERSION=1.24.2 \
-  -t agent-runtime:local .
-
-# Apple Silicon (arm64):
-docker buildx build \
-  --platform linux/arm64 \
-  -f agent-runtime/Dockerfile \
-  -t agent-runtime:local \
-  --load .
-```
-
-The image includes Node 20, Python 3.12, and Go 1.25. Expect a ~800 MB image and a 3–5 minute build on first run (cached on subsequent builds).
-
-## 2. Configure
-
-```bash
-cd agent-runtime/orchestration
+cd agent-runtime/orchestration/local
 
 # Create the env file
 cp .env.example .env
@@ -69,6 +46,10 @@ GITHUB_TOKEN=ghp_...        # GitHub PAT with repo scope — required by pr-crea
 GIT_AUTHOR_EMAIL=you@example.com
 GIT_AUTHOR_NAME=Agent Bot
 
+# SSH URL of the workflow repo — cloned into /agent/workflow/ at startup.
+# The agent uses this to resolve technical_skills/ at runtime.
+WORKFLOW_URL=git@github.com:your-org/your-workflow.git
+
 # SSH key — paste the raw PEM content (preferred):
 SSH_PRIVATE_KEY=-----BEGIN OPENSSH PRIVATE KEY-----
 ...
@@ -78,38 +59,44 @@ SSH_PRIVATE_KEY=-----BEGIN OPENSSH PRIVATE KEY-----
 # SSH_KEY_DIR=~/.ssh
 ```
 
-## 3. Run two agents
+## 2. Run agents
 
-From **`agent-runtime/orchestration/`**:
+From **`agent-runtime/orchestration/local/`**:
 
 ```bash
-docker compose --profile dev up
+docker compose up --build
 ```
 
 Or from the **`workflow/` root**:
 
 ```bash
-docker compose -f agent-runtime/orchestration/docker-compose.yml --profile dev up
+docker compose -f agent-runtime/orchestration/local/docker-compose.yml up --build
 ```
 
-Both agents share the same workspace clone volume. They will:
+`--build` is required on first run (or after code changes). On subsequent runs with no code changes, you can drop it.
+
+Both agents share the same workspace clone volume. Each container is a single activation cycle — Docker Compose restarts it automatically after each exit via `restart: unless-stopped`, creating a continuous loop.
+
+Each activation cycle:
 1. Bootstrap — clone your watched workspace and validate `agent.yaml`.
 2. Scan for `ready` tasks whose dependencies are met.
 3. Race to claim a task via git push (SHA-based contention — one wins, one retries).
 4. Run the claimed task through the Anthropic tool-use loop.
-5. Exit. (Each container is a single activation cycle.)
+5. Exit and restart automatically.
 
-## 4. Watch the output
+**To enable a second agent:** uncomment the `agent-2` block in `docker-compose.yml`, then re-run `docker compose up --build`.
+
+## 3. Watch the output
 
 Events are emitted as JSON lines to stdout. Useful patterns to watch:
 
 ```bash
-# Follow both agents, pretty-print JSON
-docker compose --profile dev logs -f \
+# Follow all agents, pretty-print JSON
+docker compose logs -f \
   | jq -R 'try fromjson catch .'
 
 # See only claim events
-docker compose --profile dev logs | grep '"type":"task_claimed\|claim_lost"'
+docker compose logs | grep '"type":"task_claimed\|claim_lost"'
 ```
 
 Key event types:
@@ -124,39 +111,35 @@ Key event types:
 | `task_run_complete` | Task finished (check `outcome` field) |
 | `activation_idle` | Nothing to do this cycle |
 
-## 5. Rebuild after code changes
+## 4. Rebuild after code changes
 
 ```bash
-docker compose --profile dev up --build
+docker compose up --build
 ```
 
-Or build separately then run:
+## 5. Stop and reset
+
+Stop the agents:
 
 ```bash
-# From workflow/ root:
-docker build -f agent-runtime/Dockerfile -t agent-runtime:local .
-
-# Then from orchestration/:
-docker compose --profile dev up
+docker compose down
 ```
-
-## 6. Reset workspace clones
 
 The `workspaces` Docker volume persists between runs (so re-cloning is fast). To force a full re-clone:
 
 ```bash
-docker compose --profile dev down -v
+docker compose down -v
 ```
 
-## Production supervisor
+## Other deployment targets
 
-To run a persistent 5-minute-cadence supervisor loop using the published GHCR image:
+The `local/` compose is for local development. For production or CI use one of:
 
-```bash
-docker compose --profile prod up -d
-```
-
-See `orchestration/docker-compose.yml` for the full supervisor configuration, and `orchestration/kubernetes/`, `orchestration/systemd/`, and `orchestration/github-actions/` for other deployment targets.
+| Target | Path |
+|---|---|
+| Kubernetes CronJob | `orchestration/kubernetes/` |
+| systemd timer | `orchestration/systemd/` |
+| GitHub Actions | `orchestration/github-actions/` |
 
 ## Troubleshooting
 
