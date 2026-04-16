@@ -122,6 +122,7 @@ function setupSkillSymlinks(
 
   const sourceDirs = [
     join(workspaceRoot, ".claude", "skills"),
+    join(workflowLocalPath, "workflow_skills"),
     join(workflowLocalPath, "technical_skills"),
   ];
 
