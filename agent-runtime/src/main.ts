@@ -1,13 +1,18 @@
 /**
  * Agent-runtime main entry point.
  *
- * One activation cycle per container run:
- *   bootstrap → eligibility → claim → run-claude → exit
+ * Lifecycle:
+ *   bootstrap (once) → polling loop:
+ *     pull workspaces → eligibility → claim → run-claude → sleep → repeat
  *
- * Exit codes mirror the bootstrap convention:
+ * idle_sleep_seconds controls the loop behaviour (read from agent.yaml):
+ *   0   → single-shot mode: one cycle then exit (for external schedulers)
+ *   >0  → continuous: loops indefinitely, sleeping idle_sleep_seconds between cycles
+ *
+ * Exit codes:
  *   0  normal exit (task ran, idle cycle, or kill-switch off)
  *   2  agent.yaml invalid
- *   3  git clone/pull failed
+ *   3  git clone/pull failed (bootstrap only — per-cycle pull failures never exit)
  *   4  unexpected fatal error
  */
 
@@ -26,6 +31,8 @@ import { runClaude } from "./loop/run-claude.js";
 import { resolveModel } from "./config/resolve-model-policy.js";
 import { parseModelOverrides } from "./config/parse-model-overrides.js";
 import type { ModelPolicy } from "./config/resolve-model-policy.js";
+import { pullWorkspaces } from "./poll/pull-workspaces.js";
+import { runAgentLoop, type CycleOutcome } from "./poll/agent-loop.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -52,8 +59,6 @@ function emit(event: Record<string, unknown>): void {
  *
  * Bootstrap (step 5b) guarantees that process.env[VAR] is set for every
  * local_path: env:<VAR> declaration before main() reaches this call.
- * The fallback join(workspacesRoot, ...) is removed — repos without an env:
- * declaration are not supported after T2.
  */
 function resolveRepoLocalPath(
   workspaceRoot: string,
@@ -165,7 +170,7 @@ async function main(): Promise<number> {
 
   const gitAuthorName = process.env.GIT_AUTHOR_NAME ?? gitAuthorEmail;
 
-  // ── SSH key resolution (D1) ───────────────────────────────────────────────
+  // ── SSH key resolution ────────────────────────────────────────────────────
   // Preferred: SSH_PRIVATE_KEY env var (raw PEM) — write to temp file 0400.
   // Fallback:  SSH_KEY_PATH env var pointing to a file already present.
   // Neither:   warn and proceed; SSH-only repos will fail at clone time.
@@ -175,7 +180,7 @@ async function main(): Promise<number> {
     emit({ type: "warn_no_ssh_key", note: "Neither SSH_PRIVATE_KEY nor SSH_KEY_PATH is set. SSH-only git operations will fail." });
   }
 
-  // ── 2. Bootstrap ─────────────────────────────────────────────────────────
+  // ── 2. Bootstrap (once at container start) ────────────────────────────────
   const bootstrapResult = await runBootstrap({
     agentYamlPath,
     workflowLocalPath,
@@ -191,154 +196,171 @@ async function main(): Promise<number> {
   // Kill switch already handled inside runBootstrap (exits 0).
   // If we get here, config.enabled is true.
 
-  // ── 3. Scan watched workspaces for an eligible task ──────────────────────
-  for (const watchUrl of config.watches) {
-    const workspaceLocalPath = join(workspacesRoot, extractRepoName(watchUrl));
+  // ── 3. Build the per-cycle scan+claim+run function ────────────────────────
+  const githubToken = process.env.GITHUB_TOKEN ?? "";
+  if (!githubToken) {
+    emit({ type: "warn_no_github_token" });
+  }
 
-    if (!existsSync(workspaceLocalPath)) {
-      emit({ type: "workspace_not_found", workspace_url: watchUrl, local_path: workspaceLocalPath });
-      continue;
-    }
+  async function runOneCycle(): Promise<CycleOutcome> {
+    // ── 3a. Pull latest workspace state ──────────────────────────────────────
+    const pullResults = pullWorkspaces({
+      watchUrls: config.watches,
+      sshKeyPath,
+      workspacesRoot,
+      emit,
+    });
 
-    // Find eligible tasks in this workspace.
-    let eligibleTasks;
-    try {
-      eligibleTasks = findEligibleTasks(config, workspaceLocalPath, workflowLocalPath);
-    } catch (e) {
-      emit({ type: "eligibility_error", workspace_url: watchUrl, details: String(e) });
-      continue;
-    }
+    // Build a set of workspaces that failed to pull — skip scanning them.
+    const haltedUrls = new Set(
+      pullResults
+        .filter((r) => r.outcome === "halt" || r.outcome === "warn")
+        .map((r) => r.url),
+    );
 
-    if (eligibleTasks.length === 0) {
-      emit({ type: "no_eligible_tasks", workspace_url: watchUrl });
-      continue;
-    }
+    // ── 3b. Scan remaining workspaces for an eligible task ────────────────────
+    for (const watchUrl of config.watches) {
+      if (haltedUrls.has(watchUrl)) continue;
 
-    // Try each task in order until one is claimed (earlier tasks may be
-    // claimed by a concurrent agent between eligibility check and claim push).
-    for (const task of eligibleTasks) {
-      const featureId = findFeatureId(workspaceLocalPath, task.id);
-      if (!featureId) {
-        emit({ type: "task_feature_not_found", task_id: task.id });
+      const workspaceLocalPath = join(workspacesRoot, extractRepoName(watchUrl));
+
+      if (!existsSync(workspaceLocalPath)) {
+        emit({ type: "workspace_not_found", workspace_url: watchUrl, local_path: workspaceLocalPath });
         continue;
       }
 
-      // ── 4. Claim ────────────────────────────────────────────────────────
-      const claimResult = await claimTask({
-        workspaceRoot: workspaceLocalPath,
-        taskId: task.id,
-        featureId,
-        gitAuthorEmail,
-        gitAuthorName,
-        sshKeyPath,
-        jitterMaxSeconds: config.jitter_max_seconds,
-      });
+      // Find eligible tasks in this workspace.
+      let eligibleTasks;
+      try {
+        eligibleTasks = findEligibleTasks(config, workspaceLocalPath, workflowLocalPath);
+      } catch (e) {
+        emit({ type: "eligibility_error", workspace_url: watchUrl, details: String(e) });
+        continue;
+      }
 
-      // Canonical task branch — single source of truth for all downstream calls.
-      // task.branch is written by claimTask on win and equals this value, but we
-      // derive it here so the branch name is consistent on both won and recovery paths.
-      const taskBranch = taskBranchName(featureId, task.id);
+      if (eligibleTasks.length === 0) {
+        emit({ type: "no_eligible_tasks", workspace_url: watchUrl });
+        continue;
+      }
 
-      if (!claimResult.won) {
-        if (claimResult.reason !== "branch_blocked_recovery") {
-          emit({ type: "claim_lost", task_id: task.id, reason: claimResult.reason });
+      // Try each task in order until one is claimed.
+      for (const task of eligibleTasks) {
+        const featureId = findFeatureId(workspaceLocalPath, task.id);
+        if (!featureId) {
+          emit({ type: "task_feature_not_found", task_id: task.id });
           continue;
         }
-        // branch_blocked_recovery: task branch already exists with blocked_context.
-        // The agent subprocess (start-implementation) will detect blocked_context and
-        // enter recovery mode. Re-read the task YAML so we have the latest state
-        // (claimTask reset to main, so disk reflects remote state after the fetch).
-        emit({ type: "task_blocked_recovery_detected", task_id: task.id, feature_id: featureId });
-        const _recoveredTask = parseYaml(
-          readFileSync(taskYamlAbsPath(workspaceLocalPath, featureId, task.id), "utf-8"),
-        ) as Task;
-        void _recoveredTask; // available for future blocked-context routing
-      } else {
-        emit({ type: "task_claimed", task_id: task.id, feature_id: featureId });
-      }
 
-      // ── 5. Open management-repo PR (non-fatal) ───────────────────────────
-      const githubToken = process.env.GITHUB_TOKEN ?? "";
-      if (!githubToken) {
-        emit({ type: "warn_no_github_token", task_id: task.id });
-      } else {
-        try {
-          const mgmtCoords = parseManagementRepoCoords(workspaceLocalPath);
-          await openWorkspacePr({
-            workspaceRoot: workspaceLocalPath,
-            featureId,
-            taskId: task.id,
-            branch: taskBranch,
-            baseBranch: mgmtCoords.baseBranch,
-            githubToken,
-            repoOwner: mgmtCoords.owner,
-            repoName: mgmtCoords.repo,
-            gitAuthorEmail,
-            gitAuthorName,
-            sshKeyPath,
-          });
-          emit({ type: "workspace_pr_opened", task_id: task.id });
-        } catch (e) {
-          emit({ type: "workspace_pr_failed", task_id: task.id, details: String(e) });
-          // Non-fatal — PR failure must not block task execution.
+        // ── Claim ─────────────────────────────────────────────────────────────
+        const claimResult = await claimTask({
+          workspaceRoot: workspaceLocalPath,
+          taskId: task.id,
+          featureId,
+          gitAuthorEmail,
+          gitAuthorName,
+          sshKeyPath,
+          jitterMaxSeconds: config.jitter_max_seconds,
+        });
+
+        const taskBranch = taskBranchName(featureId, task.id);
+
+        if (!claimResult.won) {
+          if (claimResult.reason !== "branch_blocked_recovery") {
+            emit({ type: "claim_lost", task_id: task.id, reason: claimResult.reason });
+            continue;
+          }
+          emit({ type: "task_blocked_recovery_detected", task_id: task.id, feature_id: featureId });
+          const _recoveredTask = parseYaml(
+            readFileSync(taskYamlAbsPath(workspaceLocalPath, featureId, task.id), "utf-8"),
+          ) as Task;
+          void _recoveredTask;
+        } else {
+          emit({ type: "task_claimed", task_id: task.id, feature_id: featureId });
         }
+
+        // ── Open management-repo PR (non-fatal) ───────────────────────────────
+        if (githubToken) {
+          try {
+            const mgmtCoords = parseManagementRepoCoords(workspaceLocalPath);
+            await openWorkspacePr({
+              workspaceRoot: workspaceLocalPath,
+              featureId,
+              taskId: task.id,
+              branch: taskBranch,
+              baseBranch: mgmtCoords.baseBranch,
+              githubToken,
+              repoOwner: mgmtCoords.owner,
+              repoName: mgmtCoords.repo,
+              gitAuthorEmail,
+              gitAuthorName,
+              sshKeyPath,
+            });
+            emit({ type: "workspace_pr_opened", task_id: task.id });
+          } catch (e) {
+            emit({ type: "workspace_pr_failed", task_id: task.id, details: String(e) });
+          }
+        }
+
+        // ── Load model policy + resolve task repo path ────────────────────────
+        const workspaceModelPolicy = loadWorkspaceModelPolicy(workspaceLocalPath);
+        const taskRepoRoot = resolveRepoLocalPath(workspaceLocalPath, task.repo);
+
+        // ── Resolve implementation model + parse task-level overrides ─────────
+        const tasksMdPath = join(workspaceLocalPath, "docs", "features", featureId, "tasks.md");
+        let taskModelOverrides = {};
+        try {
+          const tasksMdContent = readFileSync(tasksMdPath, "utf-8");
+          taskModelOverrides = parseModelOverrides(tasksMdContent, task.id);
+        } catch {
+          // Non-fatal — use workspace defaults if tasks.md is unreadable.
+        }
+        const implementationModel = resolveModel(
+          workspaceModelPolicy,
+          taskModelOverrides,
+          "implementation",
+          task.id,
+        );
+
+        // ── Generate agent context ─────────────────────────────────────────────
+        const agentContext = generateAgentContext({
+          taskId: task.id,
+          featureId,
+          taskTitle: task.title,
+          taskBranch,
+          taskRepo: task.repo,
+          taskRepoRoot,
+          workspaceRoot: workspaceLocalPath,
+          gitAuthorEmail,
+          gitAuthorName,
+          implementationModel,
+        });
+
+        // ── Run claude ─────────────────────────────────────────────────────────
+        const runResult = await runClaude({
+          taskId: task.id,
+          featureId,
+          workspaceRoot: workspaceLocalPath,
+          taskRepoRoot,
+          agentContext,
+          maxTurns: config.budget.max_iterations,
+          maxTokens: config.budget.max_tokens_per_task,
+          sshKeyPath,
+          gitAuthorEmail,
+          taskBranch,
+          logSinkEnabled: config.log_sink.enabled,
+        });
+
+        emit({ type: "task_run_complete", task_id: task.id, outcome: runResult.outcome });
+        return "ran_task";
       }
-
-      // ── 6. Load model policy + resolve task repo path ────────────────────
-      const workspaceModelPolicy = loadWorkspaceModelPolicy(workspaceLocalPath);
-      const taskRepoRoot = resolveRepoLocalPath(workspaceLocalPath, task.repo);
-
-      // ── 7. Resolve implementation model + parse task-level overrides ─────
-      const tasksMdPath = join(workspaceLocalPath, "docs", "features", featureId, "tasks.md");
-      let taskModelOverrides = {};
-      try {
-        const tasksMdContent = readFileSync(tasksMdPath, "utf-8");
-        taskModelOverrides = parseModelOverrides(tasksMdContent, task.id);
-      } catch {
-        // Non-fatal — use workspace defaults if tasks.md is unreadable.
-      }
-      const implementationModel = resolveModel(
-        workspaceModelPolicy,
-        taskModelOverrides,
-        "implementation",
-        task.id,
-      );
-
-      // ── 8. Generate agent context ─────────────────────────────────────────
-      const agentContext = generateAgentContext({
-        taskId: task.id,
-        featureId,
-        taskTitle: task.title,
-        taskBranch,
-        taskRepo: task.repo,
-        taskRepoRoot,
-        workspaceRoot: workspaceLocalPath,
-        gitAuthorEmail,
-        gitAuthorName,
-        implementationModel,
-      });
-
-      // ── 9. Run claude ─────────────────────────────────────────────────────
-      const runResult = await runClaude({
-        taskId: task.id,
-        featureId,
-        workspaceRoot: workspaceLocalPath,
-        taskRepoRoot,
-        agentContext,
-        maxTurns: config.budget.max_iterations,
-        maxTokens: config.budget.max_tokens_per_task,
-        sshKeyPath,
-        gitAuthorEmail,
-        taskBranch,
-        logSinkEnabled: config.log_sink.enabled,
-      });
-
-      emit({ type: "task_run_complete", task_id: task.id, outcome: runResult.outcome });
-      return 0;
     }
+
+    return "idle";
   }
 
-  emit({ type: "activation_idle", watches: config.watches });
+  // ── 4. Run the polling loop ───────────────────────────────────────────────
+  await runAgentLoop({ config, runCycle: runOneCycle, emit });
+
   return 0;
 }
 
