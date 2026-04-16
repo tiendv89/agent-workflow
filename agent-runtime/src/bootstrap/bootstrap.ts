@@ -141,7 +141,7 @@ function defaultEmit(event: BootstrapEvent): void {
   console.log(JSON.stringify(event));
 }
 
-function buildGitEnv(sshKeyPath: string | undefined): NodeJS.ProcessEnv {
+export function buildGitEnv(sshKeyPath: string | undefined): NodeJS.ProcessEnv {
   return {
     ...process.env,
     ...(sshKeyPath
@@ -183,7 +183,7 @@ function resolveLocalPath(
  * - Directory absent (or empty)  → mkdirSync + git clone.
  * Returns "cloned" | "pulled".
  */
-function syncRepo(
+export function syncRepo(
   url: string,
   localPath: string,
   baseBranch: string,
