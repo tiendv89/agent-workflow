@@ -12,7 +12,7 @@
  */
 
 import { spawn, execSync } from "node:child_process";
-import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as yamlStringify } from "yaml";
 import type { Task, BlockedReason } from "../types/task.js";
@@ -30,6 +30,8 @@ export interface RunClaudeOpts {
   featureId: string;
   workspaceRoot: string;
   taskRepoRoot: string;
+  /** Absolute path to the workflow repo (contains technical_skills/). */
+  workflowLocalPath: string;
   agentContext: string;
   maxTurns: number;
   maxTokens: number;
@@ -96,35 +98,55 @@ const MISSING_TOOL_INSTRUCTION = `
 If any shell command exits with code 127 ("command not found"), do NOT attempt to install it, use an alternative, or work around it in any way. This is a container environment problem that the runtime must fix — the agent cannot fix it. Immediately set the task status to \`blocked\`, set \`blocked_reason\` to \`missing_tool\`, record which tool was missing in \`blocked_details\`, and stop.`;
 
 /**
- * PR creation instruction — appended to every agent context.
+ * Symlink workspace and workflow skills into the task repo's .claude/skills/
+ * directory so Claude Code can discover them natively.
  *
- * The agent runs in the implementation repo (taskRepoRoot), not in the
- * management workspace, so it cannot see the workspace CLAUDE.md rule that
- * forbids `gh` CLI. This instruction enforces that rule directly in the
- * agent context and provides the correct curl-based approach.
+ * Two skill sources (in precedence order — first writer wins):
+ *   1. workspaceRoot/.claude/skills/   — workflow skills (pr-create, start-implementation,
+ *                                        pr-self-review, …) plus workspace-level technical skills
+ *   2. workflowLocalPath/technical_skills/ — canonical technical skills (fallback if absent
+ *                                            from the workspace)
  *
- * `gh` is not installed in the container. Do not add it — use curl instead.
+ * Existing entries in taskRepoRoot/.claude/skills/ are never overwritten — EEXIST
+ * is silently skipped so task-repo-native skills take precedence.
+ *
+ * This is a best-effort operation; a single failed symlink never aborts the run.
  */
-const PR_CREATION_INSTRUCTION = `
+function setupSkillSymlinks(
+  taskRepoRoot: string,
+  workspaceRoot: string,
+  workflowLocalPath: string,
+): void {
+  const targetSkillsDir = join(taskRepoRoot, ".claude", "skills");
+  mkdirSync(targetSkillsDir, { recursive: true });
 
-## PR creation rule — do NOT use \`gh\`
-\`gh\` is not available in this environment. Do not attempt to install it or use any \`gh\` command.
+  const sourceDirs = [
+    join(workspaceRoot, ".claude", "skills"),
+    join(workflowLocalPath, "technical_skills"),
+  ];
 
-To create a pull request, use the GitHub REST API via \`curl\`:
-
-\`\`\`bash
-curl -s -X POST \\
-  -H "Authorization: token \${GITHUB_TOKEN}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"title":"<PR title>","body":"<PR body>","head":"<branch>","base":"main"}' \\
-  "https://api.github.com/repos/<owner>/<repo>/pulls"
-\`\`\`
-
-Rules:
-- \`GITHUB_TOKEN\` is always available as an environment variable in this container.
-- Use the exact branch name you pushed to as \`head\`.
-- The PR title must follow: \`<type>(<featureId>/T<n>): <short description>\` (e.g. \`feat(FARO-344/T1): add DataLabelTooltip component\`).
-- After creating the PR, write the returned PR URL into the task YAML \`pr.url\` field and set \`pr.status: open\`.`;
+  for (const sourceDir of sourceDirs) {
+    if (!existsSync(sourceDir)) continue;
+    let entries: string[];
+    try {
+      entries = readdirSync(sourceDir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const linkPath = join(targetSkillsDir, entry);
+      const targetPath = join(sourceDir, entry);
+      try {
+        symlinkSync(targetPath, linkPath);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
+          emit({ type: "skill_symlink_warn", skill: entry, details: String(e) });
+        }
+        // EEXIST: already linked (from a prior activation or task-repo native) — skip.
+      }
+    }
+  }
+}
 
 /**
  * Scan stdout lines for token usage across all formats:
@@ -297,6 +319,7 @@ export async function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
     featureId,
     workspaceRoot,
     taskRepoRoot,
+    workflowLocalPath,
     agentContext,
     maxTurns,
     maxTokens,
@@ -324,9 +347,14 @@ export async function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
     return { outcome: "blocked", reason: "missing_tool", details };
   }
 
+  // ── Skill symlinks ────────────────────────────────────────────────────────
+  // Symlink workspace and workflow skills into taskRepoRoot so Claude Code
+  // discovers them natively (pr-create, start-implementation, etc.).
+  setupSkillSymlinks(taskRepoRoot, workspaceRoot, workflowLocalPath);
+
   // ── Option A: Append hard-stop instruction ───────────────────────────────
   // Fallback for tools the pre-flight doesn't know about.
-  const effectiveAgentContext = agentContext + MISSING_TOOL_INSTRUCTION + PR_CREATION_INSTRUCTION;
+  const effectiveAgentContext = agentContext + MISSING_TOOL_INSTRUCTION;
 
   emit({ type: "claude_spawn", task_id: taskId, max_turns: maxTurns });
 

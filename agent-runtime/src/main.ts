@@ -341,6 +341,7 @@ async function main(): Promise<number> {
           featureId,
           workspaceRoot: workspaceLocalPath,
           taskRepoRoot,
+          workflowLocalPath,
           agentContext,
           maxTurns: config.budget.max_iterations,
           maxTokens: config.budget.max_tokens_per_task,
