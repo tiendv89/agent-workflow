@@ -106,7 +106,7 @@ export function toSafeIso(iso: string): string {
 
 /**
  * Derive the absolute path for a run's JSONL log file.
- * Pattern: <workspaceRoot>/docs/features/<featureId>/logs/<taskId>_<safeIso>.jsonl
+ * Pattern: <workspaceRoot>/docs/features/<featureId>/logs/<taskId>/<safeIso>.jsonl
  */
 export function deriveLogPath(
   workspaceRoot: string,
@@ -115,8 +115,8 @@ export function deriveLogPath(
   runStartIso: string,
 ): string {
   return join(
-    featureLogsDirPath(workspaceRoot, featureId),
-    `${taskId}_${toSafeIso(runStartIso)}.jsonl`,
+    featureLogsDirPath(workspaceRoot, featureId, taskId),
+    `${toSafeIso(runStartIso)}.jsonl`,
   );
 }
 
@@ -160,7 +160,7 @@ export function openLogSink(opts: OpenLogSinkOptions): LogSink {
   } = opts;
 
   const filePath = deriveLogPath(workspaceRoot, featureId, taskId, runStartIso);
-  mkdirSync(featureLogsDirPath(workspaceRoot, featureId), { recursive: true });
+  mkdirSync(featureLogsDirPath(workspaceRoot, featureId, taskId), { recursive: true });
 
   // Write run_started synchronously — so even a crashed run leaves a valid partial file.
   appendLine(filePath, {
@@ -217,7 +217,8 @@ export function openLogSink(opts: OpenLogSinkOptions): LogSink {
       // Commit and push the completed log file as a single atomic batch.
       const relPath = logFileRelPath(
         featureId,
-        `${taskId}_${toSafeIso(runStartIso)}.jsonl`,
+        taskId,
+        `${toSafeIso(runStartIso)}.jsonl`,
       );
       const sshEnv = sshKeyPath
         ? { GIT_SSH_COMMAND: `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no` }

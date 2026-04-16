@@ -10,7 +10,7 @@
  *     docs/features/<featureId>/
  *       tasks.md
  *       tasks/<taskId>.yaml
- *       logs/<taskId>_<iso>.jsonl
+ *       logs/<taskId>/<iso>.jsonl
  *
  * Workflow repo layout:
  *   <workflowRoot>/
@@ -71,14 +71,14 @@ export function tasksMdAbsPath(workspaceRoot: string, featureId: string): string
   return join(workspaceRoot, "docs", "features", featureId, TASKS_MD);
 }
 
-/** `<workspaceRoot>/docs/features/<featureId>/logs/` */
-export function featureLogsDirPath(workspaceRoot: string, featureId: string): string {
-  return join(workspaceRoot, "docs", "features", featureId, LOGS_DIR);
+/** `<workspaceRoot>/docs/features/<featureId>/logs/<taskId>/` */
+export function featureLogsDirPath(workspaceRoot: string, featureId: string, taskId: string): string {
+  return join(workspaceRoot, "docs", "features", featureId, LOGS_DIR, taskId);
 }
 
-/** Relative path for git operations: `docs/features/<featureId>/logs/<filename>` */
-export function logFileRelPath(featureId: string, filename: string): string {
-  return join("docs", "features", featureId, LOGS_DIR, filename);
+/** Relative path for git operations: `docs/features/<featureId>/logs/<taskId>/<filename>` */
+export function logFileRelPath(featureId: string, taskId: string, filename: string): string {
+  return join("docs", "features", featureId, LOGS_DIR, taskId, filename);
 }
 
 /** `<workflowRoot>/technical_skills/` */
