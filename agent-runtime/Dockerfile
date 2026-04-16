@@ -62,6 +62,10 @@ ENV PATH="/usr/local/go/bin:$PATH"
 ENV GOPATH="/go"
 ENV PATH="$GOPATH/bin:$PATH"
 
+# ── Package managers ─────────────────────────────────────────────────────────
+# yarn is needed for repos that ship a yarn.lock (most implementation repos).
+RUN npm install -g yarn
+
 # ── Claude CLI ───────────────────────────────────────────────────────────────
 # Required by run-task.ts — spawned as a subprocess for each task activation.
 # GITHUB_TOKEN must be injected at runtime (see DOCKER.md).
