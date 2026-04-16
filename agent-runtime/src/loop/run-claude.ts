@@ -144,7 +144,7 @@ function flushLogAndPush(
   sshKeyPath: string | undefined,
 ): void {
   const logPath = deriveLogPath(workspaceRoot, featureId, taskId, runStartIso);
-  mkdirSync(featureLogsDirPath(workspaceRoot, featureId), { recursive: true });
+  mkdirSync(featureLogsDirPath(workspaceRoot, featureId, taskId), { recursive: true });
 
   // Header event — written synchronously so partial logs are still useful.
   appendFileSync(
@@ -164,8 +164,8 @@ function flushLogAndPush(
     JSON.stringify({ at: new Date().toISOString(), by: gitAuthorEmail, type: "run_ended", details: { outcome } }) + "\n",
   );
 
-  const logFilename = `${taskId}_${toSafeIso(runStartIso)}.jsonl`;
-  const relPath = logFileRelPath(featureId, logFilename);
+  const logFilename = `${toSafeIso(runStartIso)}.jsonl`;
+  const relPath = logFileRelPath(featureId, taskId, logFilename);
   const sshEnv = sshKeyPath
     ? { GIT_SSH_COMMAND: `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no` }
     : {};

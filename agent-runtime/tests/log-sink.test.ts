@@ -71,13 +71,13 @@ describe("deriveLogPath", () => {
       "2026-04-14T12:00:00.000Z",
     );
     expect(path).toBe(
-      "/workspace/docs/features/my-feature/logs/T4_2026-04-14T12-00-00.000Z.jsonl",
+      "/workspace/docs/features/my-feature/logs/T4/2026-04-14T12-00-00.000Z.jsonl",
     );
   });
 
   it("uses the taskId verbatim", () => {
     const path = deriveLogPath("/root", "feat", "T11", "2026-01-01T00:00:00Z");
-    expect(path).toContain("T11_");
+    expect(path).toContain("/T11/");
   });
 });
 
