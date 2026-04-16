@@ -47,7 +47,9 @@ Do not prompt for deferrable variables unless the user asks.
 
 ### Check 3 — `.env.template` in sync
 
-Compare `.env.template` against `.env`. Any variable key present in `.env` but missing from `.env.template` should be added to `.env.template` (with an empty value). This keeps the template usable for onboarding teammates.
+Compare `.env.template` against `.env`. For any variable key present in `.env.template` but missing or empty in `.env`, warn the operator and prompt them to add it (following the same flow as Check 2).
+
+Do **not** modify `.env.template` automatically. The template is the source of truth — the sync direction is `.env.template` → `.env`, never the reverse. Keys that exist in `.env` but are absent from `.env.template` are not a problem and require no action.
 
 ### Check 4 — `workspace.yaml` integrity
 
@@ -97,7 +99,7 @@ Check                        Status
 ---                          ---
 .env file                    ✓ exists / ✗ created
 Required vars complete       ✓ all set / ✗ fixed: GIT_AUTHOR_EMAIL, SSH_KEY_PATH
-.env.template in sync        ✓ / ✗ updated
+.env.template in sync        ✓ no missing keys / ✗ warned: <list of keys missing from .env>
 workspace.yaml integrity     ✓ / ✗ <description of issue>
 Skill symlinks               ✓ / ✗ repaired (N broken removed, N untracked)
   └─ .claude/skills/.gitignore  ✓ / ✗ created or repaired
