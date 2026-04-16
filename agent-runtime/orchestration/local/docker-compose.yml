@@ -1,8 +1,12 @@
 # Agent-runtime — local multi-agent compose
 #
-# Two long-running agent services. Each loops continuously, picking up
-# ready tasks from the watched workspace repos.
+# Two long-running agent services. Each runs a continuous internal polling loop,
+# pulling workspace state and scanning for ready tasks on every cycle.
 # Agent-2 is commented out by default; uncomment to run two agents in parallel.
+#
+# restart: unless-stopped provides crash recovery only — the poll cadence is
+# controlled by idle_sleep_seconds in agent.yaml (default: 60 s), not by
+# container restarts.
 #
 # Usage (from this directory):
 #   cp agent.yaml.example agent.yaml   # fill in watches: with your workspace SSH URL

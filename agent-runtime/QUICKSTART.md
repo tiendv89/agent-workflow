@@ -36,6 +36,8 @@ budget:
   max_iterations: 30
 log_sink:
   enabled: true
+# Seconds to sleep between poll cycles. Set to 0 for single-shot mode.
+idle_sleep_seconds: 60
 ```
 
 **Minimal `.env`:**
@@ -75,14 +77,16 @@ docker compose -f agent-runtime/orchestration/local/docker-compose.yml up --buil
 
 `--build` is required on first run (or after code changes). On subsequent runs with no code changes, you can drop it.
 
-Both agents share the same workspace clone volume. Each container is a single activation cycle — Docker Compose restarts it automatically after each exit via `restart: unless-stopped`, creating a continuous loop.
+Both agents share the same workspace clone volume. Each container runs a continuous internal polling loop — repos are cloned once at startup, then pulled on every cycle.
 
-Each activation cycle:
-1. Bootstrap — clone your watched workspace and validate `agent.yaml`.
+Each poll cycle:
+1. Pull latest state — `git fetch + reset` on each watched workspace and its implementation repos.
 2. Scan for `ready` tasks whose dependencies are met.
 3. Race to claim a task via git push (SHA-based contention — one wins, one retries).
 4. Run the claimed task through the Anthropic tool-use loop.
-5. Exit and restart automatically.
+5. Sleep `idle_sleep_seconds` (default: 60 s), then repeat.
+
+`restart: unless-stopped` is still set for crash recovery, but is no longer the driver of the poll cadence. To run exactly one cycle and exit, set `idle_sleep_seconds: 0` in `agent.yaml`.
 
 **To enable a second agent:** uncomment the `agent-2` block in `docker-compose.yml`, then re-run `docker compose up --build`.
 
@@ -105,11 +109,15 @@ Key event types:
 |---|---|
 | `bootstrap_started` | Agent pulled repos, config valid |
 | `skill_reference_audit` | A skill slug in `tasks.md` has no matching `technical_skills/` dir |
+| `poll_workspace_pulled` | Workspace git-pulled at start of cycle |
+| `poll_git_halt` | Non-transient pull failure (auth/not-found/non-ff); workspace skipped this cycle |
+| `poll_git_warn` | Transient pull failure (network); workspace skipped, retried next cycle |
 | `task_claimed` | This agent won the claim race |
 | `claim_lost` | Another agent claimed first; this agent idles |
 | `no_eligible_tasks` | No ready tasks found (all done, blocked, or skill-missing) |
 | `task_run_complete` | Task finished (check `outcome` field) |
-| `activation_idle` | Nothing to do this cycle |
+| `activation_idle` | Nothing to do this cycle; sleeping `idle_sleep_seconds` |
+| `activation_complete` | Task ran this cycle; sleeping `idle_sleep_seconds` before next cycle |
 
 ## 4. Rebuild after code changes
 
@@ -137,8 +145,7 @@ The `local/` compose is for local development. For production or CI use one of:
 
 | Target | Path |
 |---|---|
-| Kubernetes CronJob | `orchestration/kubernetes/` |
-| systemd timer | `orchestration/systemd/` |
+| Kubernetes Deployment | `orchestration/kubernetes/deployment.yaml` |
 | GitHub Actions | `orchestration/github-actions/` |
 
 ## Troubleshooting

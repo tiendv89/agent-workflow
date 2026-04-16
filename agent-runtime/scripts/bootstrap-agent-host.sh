@@ -291,48 +291,41 @@ if [ "${DRY_RUN_ONLY}" = true ]; then
   exit 0
 fi
 
-# ── Systemd timer install (Linux root only) ────────────────────────────────────
+# ── Persistent agent setup ────────────────────────────────────────────────────
+# The agent now runs a continuous internal polling loop — no external scheduler
+# (systemd timer, CronJob) is required. Use Docker Compose for persistent operation.
 
-if [ "$OS" != "macos" ] && [ "$(id -u)" -eq 0 ] && command -v systemctl &>/dev/null; then
-  SYSTEMD_SOURCE_DIR="${REPO_ROOT}/agent-runtime/orchestration/systemd"
+LOCAL_COMPOSE_DIR="${REPO_ROOT}/agent-runtime/orchestration/local"
 
-  if [ -d "${SYSTEMD_SOURCE_DIR}" ]; then
-    log "Installing systemd timer..."
-    cp "${SYSTEMD_SOURCE_DIR}/agent-runtime.service" "${SYSTEMD_DIR}/"
-    cp "${SYSTEMD_SOURCE_DIR}/agent-runtime.timer"   "${SYSTEMD_DIR}/"
+echo ""
+log "=== Next steps ==="
 
-    # Patch the service to use the written config dir if it differs from default
-    if [ "${CONFIG_DIR}" != "${AGENT_CONFIG_DIR}" ]; then
-      sed -i "s|${AGENT_CONFIG_DIR}|${CONFIG_DIR}|g" "${SYSTEMD_DIR}/agent-runtime.service"
-    fi
-
-    systemctl daemon-reload
-    systemctl enable --now agent-runtime.timer
-    ok "Systemd timer installed and started"
-    systemctl status agent-runtime.timer --no-pager
-  else
-    warn "Systemd unit files not found at ${SYSTEMD_SOURCE_DIR} — skipping timer install."
-    warn "Run manually: docker run --rm -v ${AGENT_YAML_DEST}:/agent/agent.yaml:ro ... ${AGENT_IMAGE}"
-  fi
-else
+if [ -d "${LOCAL_COMPOSE_DIR}" ]; then
+  echo "Start the agent with Docker Compose (continuous polling loop):"
   echo ""
-  log "=== Next steps ==="
-  if [ "$OS" = "macos" ]; then
-    echo "To run a one-shot activation:"
-    echo "  docker run --rm \\"
-    echo "    -e ANTHROPIC_API_KEY=... \\"
-    echo "    -e GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL} \\"
-    echo "    -e SSH_KEY_PATH=/agent/ssh/id_rsa \\"
-    echo "    -v ${AGENT_YAML_DEST}:/agent/agent.yaml:ro \\"
-    echo "    -v ${SSH_DIR}:/agent/ssh:ro \\"
-    echo "    ${AGENT_IMAGE}"
-    echo ""
-    echo "For a persistent supervisor loop (docker-compose prod profile):"
-    echo "  cp ${AGENT_YAML_DEST} ${REPO_ROOT}/agent-runtime/orchestration/agent.yaml"
-    echo "  cd ${REPO_ROOT}/agent-runtime/orchestration && docker compose --profile prod up -d"
-  else
-    warn "Non-root install — systemd not configured. Run the above docker command manually."
-  fi
+  echo "  cp ${AGENT_YAML_DEST} ${LOCAL_COMPOSE_DIR}/agent.yaml"
+  echo "  cd ${LOCAL_COMPOSE_DIR}"
+  echo "  cp .env.example .env   # then edit .env with your credentials"
+  echo "  docker compose up -d"
+  echo ""
+  echo "The agent polls every idle_sleep_seconds (default: 60 s). To adjust, set"
+  echo "  idle_sleep_seconds: <seconds>"
+  echo "in agent.yaml. Set to 0 for single-shot mode (one cycle, then exit)."
+  echo ""
+  echo "To view live events:"
+  echo "  docker compose logs -f agent-1"
+  echo ""
+  echo "To stop:"
+  echo "  docker compose stop"
+else
+  echo "Run the agent manually (continuous — loops until stopped):"
+  echo "  docker run -d --restart unless-stopped \\"
+  echo "    -e ANTHROPIC_API_KEY=... \\"
+  echo "    -e GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL} \\"
+  echo "    -e SSH_KEY_PATH=/agent/ssh/id_rsa \\"
+  echo "    -v ${AGENT_YAML_DEST}:/agent/agent.yaml:ro \\"
+  echo "    -v ${SSH_DIR}:/agent/ssh:ro \\"
+  echo "    ${AGENT_IMAGE}"
 fi
 
 echo ""
