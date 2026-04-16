@@ -24,6 +24,13 @@ export interface AgentConfig {
     /** Whether to write event logs. */
     enabled: boolean;
   };
+  /**
+   * Seconds to sleep between poll cycles when no eligible task is found,
+   * and after a successful task run.
+   * Set to 0 for single-shot mode (process exits after one cycle).
+   * Defaults to 60 when omitted.
+   */
+  idle_sleep_seconds?: number;
 }
 
 export interface ValidationError {

@@ -24,3 +24,13 @@ budget:
 # Per-run JSONL event log written to docs/features/<id>/logs/ on the task branch.
 log_sink:
   enabled: true
+
+# Seconds to sleep between poll cycles when no eligible task is found,
+# and after a successful task run. Controls how frequently the agent checks
+# for new work.
+#
+# Set to 0 for single-shot mode: the process exits after one activation cycle,
+# suitable for use with an external scheduler (K8s CronJob, systemd timer, etc.).
+#
+# Default when omitted: 60
+idle_sleep_seconds: 60

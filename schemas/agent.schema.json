@@ -54,6 +54,11 @@
           "description": "Whether to write a JSONL event log for each task run."
         }
       }
+    },
+    "idle_sleep_seconds": {
+      "type": "integer",
+      "description": "Seconds to sleep between poll cycles when no eligible task is found, and after a successful task run. Set to 0 for single-shot mode (process exits after one cycle, for use with external orchestrators). Defaults to 60 when omitted.",
+      "minimum": 0
     }
   }
 }
