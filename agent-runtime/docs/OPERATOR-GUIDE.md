@@ -44,64 +44,42 @@ The agent-runtime container packages Node 20, Python 3.12, and Go 1.25. No addit
 bash agent-runtime/scripts/bootstrap-agent-host.sh
 ```
 
-The script installs Docker (if absent), pulls the image, collects credentials interactively, writes a starter `agent.yaml`, and installs a systemd timer on Linux.
+The script installs Docker (if absent), pulls the image, collects credentials interactively, writes a starter `agent.yaml`, and prints Docker Compose commands to start the agent.
 
 See comments at the top of `bootstrap-agent-host.sh` for non-interactive and dry-run options.
 
-### 2b. Kubernetes CronJob
+### 2b. Kubernetes Deployment
 
 ```bash
-# 1. Edit the ConfigMap and Secret in the manifest
-vim agent-runtime/orchestration/kubernetes/cronjob.yaml
+# 1. Edit the ConfigMap (watches list) and Secret (keys) in the manifest
+vim agent-runtime/orchestration/kubernetes/deployment.yaml
 
 # 2. Apply
-kubectl apply -f agent-runtime/orchestration/kubernetes/cronjob.yaml
+kubectl apply -f agent-runtime/orchestration/kubernetes/deployment.yaml
 ```
 
 Key settings in the manifest:
-- `schedule: "*/5 * * * *"` — fire every 5 minutes
-- `concurrencyPolicy: Forbid` — no overlapping runs per node
-- `successfulJobsHistoryLimit: 3` — keep 3 successful pod logs
-- PVC (5 Gi ReadWriteOnce) — persists workspace clones across runs
+- `replicas: 1` — one long-running pod per Deployment
+- `idle_sleep_seconds: 60` in ConfigMap — poll interval between cycles
+- Liveness probe — K8s restarts the pod if the node process exits unexpectedly
+- PVC (5 Gi ReadWriteOnce) — persists workspace clones across pod restarts
 
-For multiple agents, deploy the CronJob in multiple namespaces or use multiple CronJob objects pointing at different `GIT_AUTHOR_EMAIL` values.
+For multiple agents, deploy additional Deployments in separate namespaces with distinct `GIT_AUTHOR_EMAIL` values.
 
-### 2c. Docker Compose — production supervisor
+### 2c. Docker Compose — local / self-hosted
 
 ```bash
-cd agent-runtime/orchestration
-cp .env.example .env          # fill in ANTHROPIC_API_KEY and GIT_AUTHOR_EMAIL
+cd agent-runtime/orchestration/local
+cp .env.example .env               # fill in ANTHROPIC_API_KEY and GIT_AUTHOR_EMAIL
 cp agent.yaml.example agent.yaml   # set watches: to your workspace SSH URL
-docker compose --profile prod up -d
+docker compose up -d
 ```
 
-The `supervisor` service runs a `docker:27-cli` container that calls `docker run agent-runtime:latest` every 5 minutes in a `while true` loop.
+Each agent runs a continuous internal polling loop (`idle_sleep_seconds` controls the cadence). `restart: unless-stopped` provides crash recovery only.
 
-To run multiple agents, start the compose stack on multiple hosts.
+To run multiple agents, start compose stacks on multiple hosts or uncomment `agent-2` in `docker-compose.yml`.
 
-### 2d. systemd timer
-
-```bash
-sudo cp agent-runtime/orchestration/systemd/agent-runtime.service \
-        agent-runtime/orchestration/systemd/agent-runtime.timer \
-     /etc/systemd/system/
-
-sudo mkdir -p /etc/agent-runtime/ssh
-sudo install -m 600 -o root /dev/null /etc/agent-runtime/env
-# Edit /etc/agent-runtime/env — see Section 3
-
-sudo cp your-ssh-key /etc/agent-runtime/ssh/id_rsa
-sudo chmod 400 /etc/agent-runtime/ssh/id_rsa
-
-sudo cp your-agent.yaml /etc/agent-runtime/agent.yaml
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now agent-runtime.timer
-```
-
-Timer fires every 5 minutes (`OnUnitActiveSec=5min`). Missed ticks (e.g. host was off) fire immediately on next boot (`Persistent=true`).
-
-### 2e. Scheduled GitHub Actions
+### 2d. Scheduled GitHub Actions
 
 See `orchestration/github-actions/scheduled.yml`. Suitable for very small deployments where a dedicated host is not available.
 
@@ -111,7 +89,7 @@ Limitations: GHA scheduled workflows may be delayed under load; minimum cadence 
 
 ## 3. Environment variables
 
-Set these in `/etc/agent-runtime/env` (systemd), `.env` (Docker Compose), or as Kubernetes Secrets.
+Set these in `.env` (Docker Compose) or as Kubernetes Secrets.
 
 | Variable | Required | Description |
 |---|---|---|
@@ -123,7 +101,7 @@ Set these in `/etc/agent-runtime/env` (systemd), `.env` (Docker Compose), or as 
 | `WORKSPACES_ROOT` | Yes | Root directory for watched workspace clones |
 | `SSH_KEY_PATH` | No | Path to the SSH private key inside the container. Required for private repos. |
 | `WORKFLOW_URL` | No | SSH URL for the workflow repo. Required on first run if `WORKFLOW_LOCAL_PATH` doesn't exist. |
-| `AGENT_IMAGE` | No | Image to pull (supervisor / GHA only). Default: `ghcr.io/tiendv89/agent-runtime:latest` |
+| `AGENT_IMAGE` | No | Image to pull (GHA only). Default: `ghcr.io/tiendv89/agent-runtime:latest` |
 
 ---
 
@@ -139,7 +117,7 @@ watches:
 enabled: true
 
 # Pre-claim jitter: random(50ms, min(500ms, jitter_max_seconds * 1000)).
-# Reduces collision rate when multiple agents start at the same cron tick.
+# Reduces collision rate when multiple agents wake up simultaneously.
 jitter_max_seconds: 2
 
 budget:
@@ -155,6 +133,13 @@ log_sink:
   # Write a JSONL run log to docs/features/<featureId>/logs/<runId>.jsonl
   # on the task's feature branch.
   enabled: true
+
+# Seconds to sleep between poll cycles when no eligible task is found,
+# and after a successful task run. Controls how frequently the agent checks
+# for new work.
+# Set to 0 for single-shot mode: exit after one cycle (for external schedulers).
+# Default when omitted: 60
+idle_sleep_seconds: 60
 ```
 
 ---
@@ -172,17 +157,16 @@ Agents check `enabled` on every activation. A disabled agent emits `bootstrap_re
 
 To resume, set `enabled: true`. Agents pick it up on the next activation cycle.
 
-For an emergency hard-stop, stop the container/pod/timer:
+For an emergency hard-stop, stop the container/pod:
 
 ```bash
-# Docker Compose
-docker compose --profile prod stop supervisor
-
-# systemd
-sudo systemctl stop agent-runtime.timer agent-runtime.service
+# Docker Compose (local)
+docker compose stop agent-1
 
 # Kubernetes
-kubectl delete cronjob agent-runtime -n agent-runtime
+kubectl scale deployment agent-runtime -n agent-runtime --replicas=0
+# Or delete the Deployment entirely:
+kubectl delete deployment agent-runtime -n agent-runtime
 ```
 
 ---
@@ -205,25 +189,29 @@ Every container run emits JSON lines to stdout. Key event types:
 | `claim_lost` | Another agent claimed the task first |
 | `no_eligible_tasks` | No ready tasks with satisfied dependencies |
 | `task_run_complete` | Task loop finished — check `outcome` field |
-| `activation_idle` | Nothing to do this cycle |
+| `activation_idle` | Nothing to do this cycle; sleeping `idle_sleep_seconds` |
+| `activation_complete` | Task ran this cycle; sleeping `idle_sleep_seconds` before next |
+| `poll_git_halt` | Non-transient pull failure; workspace skipped this cycle |
+| `poll_git_warn` | Transient pull failure; workspace skipped, retried next cycle |
 
 To stream events:
 
 ```bash
-# systemd
-journalctl -u agent-runtime.service -f
-
-# Docker Compose
-docker compose --profile prod logs -f supervisor
+# Docker Compose (local)
+docker compose logs -f agent-1
 
 # Kubernetes
-kubectl logs -n agent-runtime -l job-name=agent-runtime -f
+kubectl logs -n agent-runtime -l app=agent-runtime -f
 ```
 
 To filter:
 
 ```bash
-journalctl -u agent-runtime.service -f --output=cat | jq 'select(.type == "task_claimed")'
+# Docker Compose
+docker compose logs -f agent-1 | jq -R 'try fromjson | select(.type == "task_claimed")'
+
+# Kubernetes
+kubectl logs -n agent-runtime -l app=agent-runtime -f | jq -R 'try fromjson | select(.type == "task_claimed")'
 ```
 
 ### JSONL run logs (git)
@@ -364,25 +352,30 @@ The git-based claim protocol uses commit-SHA contention: all agents race to push
 **Recommendations:**
 
 - Run agents with distinct `GIT_AUTHOR_EMAIL` values to make logs readable. The claim protocol works correctly even with shared emails (SHA is the arbiter, not identity).
-- Set `jitter_max_seconds: 2` (or higher for large fleets) to desynchronise agents that start at the same cron tick.
-- For a 2-agent local setup, use `docker compose --profile dev up`.
-- For N-agent production, run the `prod` profile on N separate hosts (or N Kubernetes CronJobs in separate namespaces).
+- Set `jitter_max_seconds: 2` (or higher for large fleets) to desynchronise agents that wake up at the same moment after sleeping.
+- For a 2-agent local setup, uncomment `agent-2` in `orchestration/local/docker-compose.yml` and re-run `docker compose up`.
+- For N-agent production on Kubernetes, deploy N Deployments in separate namespaces, each with a distinct `GIT_AUTHOR_EMAIL`.
 
 ---
 
 ## 11. Updating the image
 
-The supervisor loop (`--profile prod`) pulls the latest image before each activation automatically. For other deployment targets:
+For Docker Compose and Kubernetes deployments:
 
 ```bash
-# systemd (ExecStartPre already pulls on each run — no action needed)
-
-# Manual pull
+# Manual pull (then recreate the container / roll the Deployment)
 docker pull ghcr.io/tiendv89/agent-runtime:latest
+
+# Docker Compose — rebuild and restart
+docker compose up --build -d
+
+# Kubernetes — trigger a rollout (imagePullPolicy: Always pulls on each pod start)
+kubectl rollout restart deployment/agent-runtime -n agent-runtime
 
 # Pin to a specific SHA (recommended for production)
 docker pull ghcr.io/tiendv89/agent-runtime@sha256:<digest>
-# Then set AGENT_IMAGE=ghcr.io/tiendv89/agent-runtime@sha256:<digest> in your env file
+# Update the image field in deployment.yaml and re-apply:
+kubectl apply -f agent-runtime/orchestration/kubernetes/deployment.yaml
 ```
 
 To rebuild locally after a code change:

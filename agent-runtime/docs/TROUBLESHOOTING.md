@@ -233,7 +233,7 @@ blocked_reason: null
 cat docs/features/<featureId>/tasks/T<n>.yaml | grep -A5 blocked_details
 
 # Cross-reference with agent logs
-journalctl -u agent-runtime.service --output=cat | jq 'select(.type == "task_blocked")'
+kubectl logs -n agent-runtime -l app=agent-runtime --tail=200 | jq -R 'try fromjson | select(.type == "task_blocked")'
 ```
 
 **Fix:** Address the root cause from `blocked_details.error`. This may require a runtime update. Once fixed, reset:
@@ -346,7 +346,7 @@ The agent exits with code 3 (`EXIT_GIT_FAILED`).
 
 ```bash
 # Check the details field of the event
-journalctl -u agent-runtime.service --output=cat | jq 'select(.type == "bootstrap_failed")'
+kubectl logs -n agent-runtime -l app=agent-runtime --tail=200 | jq -R 'try fromjson | select(.type == "bootstrap_failed")'
 ```
 
 Common causes beyond SSH (see above):
@@ -370,30 +370,6 @@ Common causes beyond SSH (see above):
 | `manifest unknown` | Tag doesn't exist | Use `:latest` or check the GitHub Packages page for available tags |
 | `no space left on device` | Host disk full | `docker system prune -f` to remove unused images/containers |
 | `toomanyrequests` | Rate limit | Wait and retry, or use a personal access token |
-
----
-
-## Docker socket permission denied
-
-**Symptom:** Supervisor container fails with `Got permission denied while trying to connect to the Docker daemon socket`.
-
-**Cause:** The `supervisor` service mounts `/var/run/docker.sock` but the container user doesn't have access.
-
-**Fix:**
-
-```bash
-# Add the docker group to the container user (or run supervisor as root)
-# In docker-compose.yml, add:
-services:
-  supervisor:
-    user: root   # or use group_add: [docker] if the image supports it
-```
-
-Or set correct socket permissions on the host:
-
-```bash
-sudo chmod 666 /var/run/docker.sock   # less secure — prefer group membership
-```
 
 ---
 
@@ -424,7 +400,7 @@ python3 -c "import yaml,sys; yaml.safe_load(sys.stdin)" < docs/features/<feature
 
 ```bash
 # Check for log sink errors in the agent output
-journalctl -u agent-runtime.service --output=cat | jq 'select(.type | startswith("log_sink"))'
+kubectl logs -n agent-runtime -l app=agent-runtime --tail=200 | jq -R 'try fromjson | select(.type | startswith("log_sink"))'
 ```
 
 **Fix:** Ensure the SSH key has push access to the implementation repo and that the feature branch is not protected against direct pushes.
