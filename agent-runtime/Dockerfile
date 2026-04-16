@@ -89,6 +89,25 @@ COPY --from=builder /build/package.json ./package.json
 COPY agent-runtime/scripts/ ./scripts/
 RUN chmod +x ./scripts/run-once.sh
 
+# ── Non-root user ─────────────────────────────────────────────────────────────
+# Claude Code blocks --dangerously-skip-permissions when running as root.
+# Run as a dedicated agent user so the flag is accepted.
+#
+# Named volume initialisation: Docker copies image directory contents (with
+# their permissions) into a named volume on first use. Pre-creating /agent/*
+# as agent-owned here ensures fresh volumes start writable by the agent user.
+# If volumes already exist as root-owned, recreate them:
+#   docker compose down -v && docker compose up --build
+RUN useradd -m -u 1001 -s /bin/bash agent \
+    && mkdir -p /agent/data /agent/ssh /agent/workflow \
+    && chown -R agent:agent /agent /workflow
+
+# Relocate GOPATH so the module cache is writable by the agent user.
+ENV GOPATH="/home/agent/go"
+ENV PATH="/home/agent/go/bin:$PATH"
+
+USER agent
+
 # ── Container contract ────────────────────────────────────────────────────────
 # Required env vars — see DOCKER.md for full documentation.
 ENV AGENT_YAML_PATH="/agent/agent.yaml"
