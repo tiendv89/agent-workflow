@@ -12,7 +12,7 @@
  */
 
 import { spawn, execSync } from "node:child_process";
-import { mkdirSync, appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as yamlStringify } from "yaml";
 import type { Task, BlockedReason } from "../types/task.js";
@@ -45,6 +45,55 @@ export interface RunClaudeOpts {
 function emit(event: Record<string, unknown>): void {
   console.log(JSON.stringify({ at: new Date().toISOString(), ...event }));
 }
+
+/**
+ * Option B — Pre-flight toolchain check.
+ *
+ * Detects which package manager / runtime the repo needs by inspecting
+ * well-known lock files and manifests, then verifies each required tool
+ * exists via `which`. Returns the list of missing tool names (empty = all OK).
+ *
+ * This runs before spawning claude so zero tokens are spent when the
+ * container image is missing a tool.
+ */
+const TOOLCHAIN_MARKERS: Array<{ file: string; tool: string }> = [
+  { file: "yarn.lock",        tool: "yarn"    },
+  { file: "pnpm-lock.yaml",   tool: "pnpm"    },
+  { file: "go.mod",           tool: "go"      },
+  { file: "requirements.txt", tool: "python3" },
+  { file: "pyproject.toml",   tool: "python3" },
+  { file: "Cargo.toml",       tool: "cargo"   },
+];
+
+function checkRequiredTools(taskRepoRoot: string): string[] {
+  const missing: string[] = [];
+  const checked = new Set<string>();
+
+  for (const { file, tool } of TOOLCHAIN_MARKERS) {
+    if (checked.has(tool)) continue;
+    if (!existsSync(join(taskRepoRoot, file))) continue;
+    checked.add(tool);
+    try {
+      execSync(`which ${tool}`, { stdio: "pipe" });
+    } catch {
+      missing.push(tool);
+    }
+  }
+
+  return missing;
+}
+
+/**
+ * Option A — Hard-stop instruction appended to every agent context.
+ *
+ * Safety net for tools the pre-flight doesn't know about (e.g. jq, forge,
+ * custom CLIs). If the agent hits a 127 exit code for any tool, it must
+ * block immediately instead of burning turns trying workarounds.
+ */
+const MISSING_TOOL_INSTRUCTION = `
+
+## Hard stop rule — missing tools
+If any shell command exits with code 127 ("command not found"), do NOT attempt to install it, use an alternative, or work around it in any way. This is a container environment problem that the runtime must fix — the agent cannot fix it. Immediately set the task status to \`blocked\`, set \`blocked_reason\` to \`missing_tool\`, record which tool was missing in \`blocked_details\`, and stop.`;
 
 /**
  * Scan stdout lines for token usage across all formats:
@@ -234,6 +283,16 @@ export async function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
     env.GIT_SSH_COMMAND = `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no`;
   }
 
+  // ── Option B: Pre-flight toolchain check ─────────────────────────────────
+  // Verify required tools exist before spending any tokens. If a tool is
+  // missing the container image must be fixed — block immediately.
+  const missingTools = checkRequiredTools(taskRepoRoot);
+  if (missingTools.length > 0) {
+    const details = `missing tools in container: ${missingTools.join(", ")}`;
+    emit({ type: "preflight_failed", task_id: taskId, reason: "missing_tool", details });
+    return { outcome: "blocked", reason: "missing_tool", details };
+  }
+
   // Pre-configure Claude Code permissions for the headless subprocess.
   // Without this, Write/Edit/Bash(git) all require interactive approval that
   // can never be granted in an automated context — the agent would be stuck.
@@ -288,6 +347,10 @@ export async function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
     // Non-fatal: proceed anyway; the agent may still work in default mode.
   }
 
+  // ── Option A: Append hard-stop instruction ───────────────────────────────
+  // Fallback for tools the pre-flight doesn't know about.
+  const effectiveAgentContext = agentContext + MISSING_TOOL_INSTRUCTION;
+
   emit({ type: "claude_spawn", task_id: taskId, max_turns: maxTurns });
 
   // Use async spawn so stdout streams to the container log in real-time
@@ -303,7 +366,7 @@ export async function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
     const child = spawn(
       "claude",
       [
-        "-p", agentContext,
+        "-p", effectiveAgentContext,
         "--max-turns", String(maxTurns),
         "--output-format", "stream-json",
         "--verbose",
