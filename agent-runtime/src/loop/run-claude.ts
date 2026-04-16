@@ -293,60 +293,6 @@ export async function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
     return { outcome: "blocked", reason: "missing_tool", details };
   }
 
-  // Pre-configure Claude Code permissions for the headless subprocess.
-  // Without this, Write/Edit/Bash(git) all require interactive approval that
-  // can never be granted in an automated context — the agent would be stuck.
-  const claudeSettingsPath = join(taskRepoRoot, ".claude", "settings.json");
-  try {
-    mkdirSync(join(taskRepoRoot, ".claude"), { recursive: true });
-    writeFileSync(
-      claudeSettingsPath,
-      JSON.stringify(
-        {
-          permissions: {
-            allow: [
-              "Bash(git checkout:*)",
-              "Bash(git branch:*)",
-              "Bash(git push:*)",
-              "Bash(git pull:*)",
-              "Bash(git fetch:*)",
-              "Bash(git add:*)",
-              "Bash(git commit:*)",
-              "Bash(git config:*)",
-              "Bash(git switch:*)",
-              "Bash(git stash:*)",
-              "Bash(git rebase:*)",
-              "Bash(git merge:*)",
-              "Bash(git log:*)",
-              "Bash(git diff:*)",
-              "Bash(git status:*)",
-              "Bash(git rev-parse:*)",
-              "Bash(git show:*)",
-              "Bash(yarn*)",
-              "Bash(npm*)",
-              "Bash(npx*)",
-              "Bash(node*)",
-              "Bash(mkdir*)",
-              "Bash(cp*)",
-              "Bash(mv*)",
-              "Bash(rm*)",
-              "Bash(touch*)",
-              "Write(*)",
-              "Edit(*)",
-              "MultiEdit(*)",
-            ],
-          },
-        },
-        null,
-        2,
-      ),
-    );
-    emit({ type: "claude_settings_written", task_id: taskId, path: claudeSettingsPath });
-  } catch (settingsErr) {
-    emit({ type: "claude_settings_failed", task_id: taskId, details: String(settingsErr) });
-    // Non-fatal: proceed anyway; the agent may still work in default mode.
-  }
-
   // ── Option A: Append hard-stop instruction ───────────────────────────────
   // Fallback for tools the pre-flight doesn't know about.
   const effectiveAgentContext = agentContext + MISSING_TOOL_INSTRUCTION;
@@ -370,6 +316,7 @@ export async function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
         "--max-turns", String(maxTurns),
         "--output-format", "stream-json",
         "--verbose",
+        "--dangerously-skip-permissions",
       ],
       { cwd: taskRepoRoot, env },
     );
