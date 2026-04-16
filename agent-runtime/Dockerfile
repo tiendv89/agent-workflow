@@ -99,8 +99,9 @@ RUN chmod +x ./scripts/run-once.sh
 # If volumes already exist as root-owned, recreate them:
 #   docker compose down -v && docker compose up --build
 RUN useradd -m -u 1001 -s /bin/bash agent \
-    && mkdir -p /agent/data /agent/ssh /agent/workflow \
-    && chown -R agent:agent /agent /workflow
+    && mkdir -p /agent/data /agent/ssh /agent/workflow /home/agent/.ssh \
+    && chmod 700 /home/agent/.ssh \
+    && chown -R agent:agent /agent /workflow /home/agent
 
 # Relocate GOPATH so the module cache is writable by the agent user.
 ENV GOPATH="/home/agent/go"

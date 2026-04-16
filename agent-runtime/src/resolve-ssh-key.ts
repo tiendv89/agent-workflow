@@ -11,7 +11,9 @@
 
 import { writeFileSync } from "node:fs";
 
-export const TEMP_SSH_KEY_PATH = "/tmp/agent_id_rsa";
+// Write to the agent user's home dir, not /tmp, so a root-owned leftover
+// from a previous container run cannot block the write (EACCES).
+export const TEMP_SSH_KEY_PATH = "/home/agent/.ssh/agent_id_rsa";
 
 export interface SSHKeyEnv {
   SSH_PRIVATE_KEY?: string;
