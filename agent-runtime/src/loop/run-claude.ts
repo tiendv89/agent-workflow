@@ -11,8 +11,9 @@
  *   is not found, emit budget_audit_skipped and continue (option Y).
  */
 
-import { spawnSync, execSync } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import { mkdirSync, appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { parse as parseYaml, stringify as yamlStringify } from "yaml";
 import type { Task, BlockedReason } from "../types/task.js";
 import { taskYamlAbsPath, taskYamlRelPath, featureLogsDirPath, logFileRelPath } from "../paths.js";
@@ -46,28 +47,56 @@ function emit(event: Record<string, unknown>): void {
 }
 
 /**
- * Scan stdout lines (in reverse) for a JSON object containing usage fields.
- * Claude Code may emit a usage summary when output includes structured data.
- * Returns total tokens (input + output) or undefined if not found.
+ * Scan stdout lines for token usage across all formats:
+ *
+ * - stream-json assistant events:
+ *     {"type":"assistant","message":{"usage":{"input_tokens":N,"output_tokens":N,...}}}
+ *   These fire once per turn; we sum all turns for the total.
+ *
+ * - Legacy flat usage object (plain-text / json format):
+ *     {"usage":{"input_tokens":N,"output_tokens":N}}
+ *
+ * Returns accumulated total tokens, or undefined if no usage lines are found.
  */
 function extractTotalTokens(stdout: string): number | undefined {
-  for (const line of stdout.split("\n").reverse()) {
+  let total = 0;
+  let found = false;
+
+  for (const line of stdout.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) continue;
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+
+      // stream-json: assistant event carries per-turn usage inside message.
+      if (parsed.type === "assistant") {
+        const msg = parsed.message as Record<string, unknown> | undefined;
+        const usage = msg?.usage as Record<string, unknown> | undefined;
+        if (
+          typeof usage?.input_tokens === "number" &&
+          typeof usage?.output_tokens === "number"
+        ) {
+          total += (usage.input_tokens as number) + (usage.output_tokens as number);
+          found = true;
+        }
+        continue;
+      }
+
+      // Legacy flat shape.
       const usage = parsed.usage as Record<string, unknown> | undefined;
       if (
         typeof usage?.input_tokens === "number" &&
         typeof usage?.output_tokens === "number"
       ) {
-        return (usage.input_tokens as number) + (usage.output_tokens as number);
+        total += (usage.input_tokens as number) + (usage.output_tokens as number);
+        found = true;
       }
     } catch {
-      // Not a JSON line — keep scanning.
+      // Not a JSON line — skip.
     }
   }
-  return undefined;
+
+  return found ? total : undefined;
 }
 
 /**
@@ -205,18 +234,105 @@ export async function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
     env.GIT_SSH_COMMAND = `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no`;
   }
 
+  // Pre-configure Claude Code permissions for the headless subprocess.
+  // Without this, Write/Edit/Bash(git) all require interactive approval that
+  // can never be granted in an automated context — the agent would be stuck.
+  const claudeSettingsPath = join(taskRepoRoot, ".claude", "settings.json");
+  try {
+    mkdirSync(join(taskRepoRoot, ".claude"), { recursive: true });
+    writeFileSync(
+      claudeSettingsPath,
+      JSON.stringify(
+        {
+          permissions: {
+            allow: [
+              "Bash(git checkout:*)",
+              "Bash(git branch:*)",
+              "Bash(git push:*)",
+              "Bash(git pull:*)",
+              "Bash(git fetch:*)",
+              "Bash(git add:*)",
+              "Bash(git commit:*)",
+              "Bash(git config:*)",
+              "Bash(git switch:*)",
+              "Bash(git stash:*)",
+              "Bash(git rebase:*)",
+              "Bash(git merge:*)",
+              "Bash(git log:*)",
+              "Bash(git diff:*)",
+              "Bash(git status:*)",
+              "Bash(git rev-parse:*)",
+              "Bash(git show:*)",
+              "Bash(yarn*)",
+              "Bash(npm*)",
+              "Bash(npx*)",
+              "Bash(node*)",
+              "Bash(mkdir*)",
+              "Bash(cp*)",
+              "Bash(mv*)",
+              "Bash(rm*)",
+              "Bash(touch*)",
+              "Write(*)",
+              "Edit(*)",
+              "MultiEdit(*)",
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    emit({ type: "claude_settings_written", task_id: taskId, path: claudeSettingsPath });
+  } catch (settingsErr) {
+    emit({ type: "claude_settings_failed", task_id: taskId, details: String(settingsErr) });
+    // Non-fatal: proceed anyway; the agent may still work in default mode.
+  }
+
   emit({ type: "claude_spawn", task_id: taskId, max_turns: maxTurns });
 
-  const spawnResult = spawnSync(
-    "claude",
-    ["-p", agentContext, "--max-turns", String(maxTurns)],
-    {
-      cwd: taskRepoRoot,
-      env,
-      encoding: "utf-8",
-      maxBuffer: 50 * 1024 * 1024, // 50 MB
-    },
-  );
+  // Use async spawn so stdout streams to the container log in real-time
+  // while also being captured for the JSONL log sink.
+  const spawnResult = await new Promise<{
+    stdout: string;
+    status: number | null;
+    signal: string | null;
+    error?: Error;
+  }>((resolve) => {
+    const stdoutChunks: string[] = [];
+
+    const child = spawn(
+      "claude",
+      [
+        "-p", agentContext,
+        "--max-turns", String(maxTurns),
+        "--output-format", "stream-json",
+        "--verbose",
+      ],
+      { cwd: taskRepoRoot, env },
+    );
+
+    child.stdout.setEncoding("utf-8");
+    child.stderr.setEncoding("utf-8");
+
+    // Tee stdout: capture for log sink + stream to container stdout.
+    child.stdout.on("data", (chunk: string) => {
+      stdoutChunks.push(chunk);
+      process.stdout.write(chunk);
+    });
+
+    // Surface claude's stderr directly to the container log.
+    child.stderr.on("data", (chunk: string) => {
+      process.stderr.write(chunk);
+    });
+
+    child.on("error", (error: Error) => {
+      resolve({ stdout: stdoutChunks.join(""), status: null, signal: null, error });
+    });
+
+    child.on("close", (code: number | null, signal: string | null) => {
+      resolve({ stdout: stdoutChunks.join(""), status: code, signal });
+    });
+  });
 
   emit({
     type: "claude_exit",

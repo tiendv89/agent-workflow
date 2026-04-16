@@ -19,7 +19,8 @@ budget:
   # Maximum tokens (input + output) per task. Prevents runaway spend.
   max_tokens_per_task: 100000
   # Maximum tool-use loop iterations per task.
-  max_iterations: 30
+  # 30 is too low for non-trivial implementation tasks — raise as needed.
+  max_iterations: 80
 
 # Per-run JSONL event log written to docs/features/<id>/logs/ on the task branch.
 log_sink:

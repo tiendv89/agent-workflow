@@ -16,4 +16,13 @@
 
 set -euo pipefail
 
+# Configure global git identity from injected environment variables.
+# GIT_AUTHOR_NAME / GIT_AUTHOR_EMAIL are set in docker-compose.yml per-service.
+if [ -n "${GIT_AUTHOR_NAME:-}" ]; then
+  git config --global user.name "${GIT_AUTHOR_NAME}"
+fi
+if [ -n "${GIT_AUTHOR_EMAIL:-}" ]; then
+  git config --global user.email "${GIT_AUTHOR_EMAIL}"
+fi
+
 exec node /workflow/agent-runtime/dist/main.js "$@"
