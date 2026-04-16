@@ -249,7 +249,7 @@ function writeBlockedAndPush(
     ? { GIT_SSH_COMMAND: `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no` }
     : {};
   const env = { ...process.env, ...sshEnv };
-  const opts = { cwd: workspaceRoot, encoding: "utf-8" as const, env };
+  const opts = { cwd: workspaceRoot, encoding: "utf-8" as const, env, timeout: 30_000 };
 
   execSync(`git add "${relPath}"`, opts);
   execSync(
@@ -302,10 +302,11 @@ function flushLogAndPush(
     ? { GIT_SSH_COMMAND: `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no` }
     : {};
   const env = { ...process.env, ...sshEnv } as NodeJS.ProcessEnv;
+  const GIT_PUSH_TIMEOUT = 30_000;
 
   execSync(`git -C "${workspaceRoot}" add "${relPath}"`, { env, stdio: "pipe" });
   execSync(`git -C "${workspaceRoot}" commit -m "chore: flush task log ${taskId}"`, { env, stdio: "pipe" });
-  execSync(`git -C "${workspaceRoot}" push origin "${taskBranch}"`, { env, stdio: "pipe" });
+  execSync(`git -C "${workspaceRoot}" push origin "${taskBranch}"`, { env, stdio: "pipe", timeout: GIT_PUSH_TIMEOUT });
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
