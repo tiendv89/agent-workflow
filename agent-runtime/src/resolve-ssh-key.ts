@@ -9,10 +9,13 @@
  * The function is extracted from main.ts so it can be unit-tested in isolation.
  */
 
-import { writeFileSync } from "node:fs";
+import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 
 // Write to the agent user's home dir, not /tmp, so a root-owned leftover
 // from a previous container run cannot block the write (EACCES).
+// The file is removed before each write because a 0o400 file cannot be
+// overwritten in place — container restarts (restart: unless-stopped) hit
+// EACCES without the unlink.
 export const TEMP_SSH_KEY_PATH = "/home/agent/.ssh/agent_id_rsa";
 
 export interface SSHKeyEnv {
@@ -40,6 +43,7 @@ export function resolveSSHKey(
   tempKeyPath: string = TEMP_SSH_KEY_PATH,
 ): ResolveSSHKeyResult {
   if (env.SSH_PRIVATE_KEY) {
+    if (existsSync(tempKeyPath)) unlinkSync(tempKeyPath);
     writeFn(tempKeyPath, env.SSH_PRIVATE_KEY, { mode: 0o400 });
     return { sshKeyPath: tempKeyPath, warned: false };
   }
