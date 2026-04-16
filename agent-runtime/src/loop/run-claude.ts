@@ -96,6 +96,37 @@ const MISSING_TOOL_INSTRUCTION = `
 If any shell command exits with code 127 ("command not found"), do NOT attempt to install it, use an alternative, or work around it in any way. This is a container environment problem that the runtime must fix — the agent cannot fix it. Immediately set the task status to \`blocked\`, set \`blocked_reason\` to \`missing_tool\`, record which tool was missing in \`blocked_details\`, and stop.`;
 
 /**
+ * PR creation instruction — appended to every agent context.
+ *
+ * The agent runs in the implementation repo (taskRepoRoot), not in the
+ * management workspace, so it cannot see the workspace CLAUDE.md rule that
+ * forbids `gh` CLI. This instruction enforces that rule directly in the
+ * agent context and provides the correct curl-based approach.
+ *
+ * `gh` is not installed in the container. Do not add it — use curl instead.
+ */
+const PR_CREATION_INSTRUCTION = `
+
+## PR creation rule — do NOT use \`gh\`
+\`gh\` is not available in this environment. Do not attempt to install it or use any \`gh\` command.
+
+To create a pull request, use the GitHub REST API via \`curl\`:
+
+\`\`\`bash
+curl -s -X POST \\
+  -H "Authorization: token \${GITHUB_TOKEN}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"title":"<PR title>","body":"<PR body>","head":"<branch>","base":"main"}' \\
+  "https://api.github.com/repos/<owner>/<repo>/pulls"
+\`\`\`
+
+Rules:
+- \`GITHUB_TOKEN\` is always available as an environment variable in this container.
+- Use the exact branch name you pushed to as \`head\`.
+- The PR title must follow: \`<type>(<featureId>/T<n>): <short description>\` (e.g. \`feat(FARO-344/T1): add DataLabelTooltip component\`).
+- After creating the PR, write the returned PR URL into the task YAML \`pr.url\` field and set \`pr.status: open\`.`;
+
+/**
  * Scan stdout lines for token usage across all formats:
  *
  * - stream-json assistant events:
@@ -295,7 +326,7 @@ export async function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
 
   // ── Option A: Append hard-stop instruction ───────────────────────────────
   // Fallback for tools the pre-flight doesn't know about.
-  const effectiveAgentContext = agentContext + MISSING_TOOL_INSTRUCTION;
+  const effectiveAgentContext = agentContext + MISSING_TOOL_INSTRUCTION + PR_CREATION_INSTRUCTION;
 
   emit({ type: "claude_spawn", task_id: taskId, max_turns: maxTurns });
 
