@@ -36,9 +36,9 @@ Features follow this lifecycle:
 
 1. Product owner produces `product-spec.md`
 2. Human approves or rejects product spec
-3. Tech lead uses `plan-first` to produce `technical-design.md`
+3. Tech lead uses `tech-lead` (Phase 1) to produce `technical-design.md`
 4. Human approves or rejects technical design
-5. Task breakdown is produced as one YAML file per task under `docs/features/<feature_id>/tasks/`
+5. Tech lead uses `tech-lead` (Phase 2) to produce task breakdown under `docs/features/<feature_id>/tasks/`
 6. Human approves or rejects tasks
 7. Teams execute tasks in their real implementation repos
 8. Handoffs are recorded under `handoffs/`

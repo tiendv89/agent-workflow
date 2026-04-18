@@ -3,6 +3,24 @@ name: tech-lead
 description: Produce technical design and implementation task structure from an approved product spec under the shared workspace workflow.
 ---
 
+## Phase gate (read this first)
+
+This skill runs in two phases, determined by reading `status.yaml` before doing anything else.
+
+**Phase 1 — Design** (when `stages.technical_design.review_status` is NOT `approved`):
+- Produce or update `technical-design.md` only.
+- Stop after writing the design doc. Do not create `tasks.md` or any `tasks/T<n>.yaml` files.
+- Output a clear message: "Technical design draft complete. Awaiting human approval before task breakdown."
+
+**Phase 2 — Tasks** (when `stages.technical_design.review_status` is `approved`):
+- `technical-design.md` already exists and is approved — do not rewrite it unless instructed.
+- Produce `tasks.md` and `tasks/T<n>.yaml` files.
+- Stop after task files are written. Do not advance `status.yaml` — that is the `approve-feature` skill's job.
+
+This gate preserves two independent human approval checkpoints: one for design quality, one for task scope.
+
+---
+
 ## Mission
 Act as the technical lead for a workflow-driven engineering workspace.
 
