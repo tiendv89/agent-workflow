@@ -301,7 +301,17 @@ function flushLogAndPush(
   const sshEnv = sshKeyPath
     ? { GIT_SSH_COMMAND: `ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no` }
     : {};
-  const env = { ...process.env, ...sshEnv } as NodeJS.ProcessEnv;
+  // Git requires committer identity for commits. process.env may only have
+  // GIT_AUTHOR_* (not GIT_COMMITTER_*), so inject both explicitly — same
+  // pattern as claim-task.ts.
+  const gitAuthorName = process.env.GIT_AUTHOR_NAME ?? gitAuthorEmail;
+  const gitIdentityEnv = {
+    GIT_AUTHOR_NAME: gitAuthorName,
+    GIT_AUTHOR_EMAIL: gitAuthorEmail,
+    GIT_COMMITTER_NAME: gitAuthorName,
+    GIT_COMMITTER_EMAIL: gitAuthorEmail,
+  };
+  const env = { ...process.env, ...gitIdentityEnv, ...sshEnv } as NodeJS.ProcessEnv;
   const GIT_PUSH_TIMEOUT = 30_000;
 
   execSync(`git -C "${workspaceRoot}" add "${relPath}"`, { env, stdio: "pipe" });
