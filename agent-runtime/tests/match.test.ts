@@ -176,7 +176,7 @@ describe("findEligibleTasks", () => {
       const agentConfig = makeAgentConfig(["git@github.com:myorg/workspace.git"]);
       const result = findEligibleTasks(agentConfig, workspaceRoot, workflowRoot);
       expect(result).toHaveLength(1);
-      expect(result[0]!.id).toBe("T1");
+      expect(result[0]!.task.id).toBe("T1");
     });
   });
 
@@ -234,7 +234,7 @@ describe("findEligibleTasks", () => {
       const agentConfig = makeAgentConfig(["git@github.com:myorg/workspace.git"]);
       const result = findEligibleTasks(agentConfig, workspaceRoot, workflowRoot);
       expect(result).toHaveLength(1);
-      expect(result[0]!.id).toBe("T2");
+      expect(result[0]!.task.id).toBe("T2");
     });
   });
 
@@ -288,7 +288,7 @@ describe("findEligibleTasks", () => {
       const agentConfig = makeAgentConfig(["git@github.com:myorg/workspace.git"]);
       const result = findEligibleTasks(agentConfig, workspaceRoot, workflowRoot);
       expect(result).toHaveLength(1);
-      expect(result[0]!.id).toBe("T3");
+      expect(result[0]!.task.id).toBe("T3");
     });
 
     it("includes task with empty depends_on", () => {
@@ -338,7 +338,7 @@ describe("findEligibleTasks", () => {
       const agentConfig = makeAgentConfig(["git@github.com:myorg/workspace.git"]);
       const result = findEligibleTasks(agentConfig, workspaceRoot, workflowRoot);
       expect(result).toHaveLength(1);
-      expect(result[0]!.id).toBe("T3");
+      expect(result[0]!.task.id).toBe("T3");
     });
   });
 
@@ -555,7 +555,7 @@ describe("findEligibleTasks", () => {
 
       const agentConfig = makeAgentConfig(["git@github.com:myorg/workspace.git"]);
       const result = findEligibleTasks(agentConfig, workspaceRoot, workflowRoot);
-      expect(result.map((t) => t.id)).toEqual(["T1", "T2", "T10", "T20"]);
+      expect(result.map((t) => t.task.id)).toEqual(["T1", "T2", "T10", "T20"]);
     });
   });
 
@@ -591,7 +591,7 @@ describe("findEligibleTasks", () => {
       const result = findEligibleTasks(agentConfig, workspaceRoot, workflowRoot);
       // Only feature-alpha's T2 is eligible (feature-beta's T1 is in_progress)
       expect(result).toHaveLength(1);
-      expect(result[0]!.id).toBe("T2");
+      expect(result[0]!.task.id).toBe("T2");
     });
 
     it("uses per-feature done-set (T1 done in alpha does not satisfy T1 dep in beta)", () => {
@@ -622,7 +622,7 @@ describe("findEligibleTasks", () => {
       const agentConfig = makeAgentConfig(["git@github.com:myorg/workspace.git"]);
       const result = findEligibleTasks(agentConfig, workspaceRoot, workflowRoot);
 
-      const ids = result.map((t) => t.id);
+      const ids = result.map((t) => t.task.id);
       // beta/T1 is eligible (no deps), beta/T2 is not (T1 not done in beta)
       // alpha/T1 is done, not ready → excluded
       expect(ids).toContain("T1"); // beta's T1
@@ -665,7 +665,7 @@ describe("findEligibleTasks", () => {
       const lines = captureStdout(() => {
         const result = findEligibleTasks(agentConfig, workspaceRoot, workflowRoot);
         expect(result).toHaveLength(1);
-        expect(result[0]!.id).toBe("T4");
+        expect(result[0]!.task.id).toBe("T4");
       });
 
       // T1 should produce a missing-skill event

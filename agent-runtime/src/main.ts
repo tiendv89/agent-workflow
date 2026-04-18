@@ -16,12 +16,12 @@
  *   4  unexpected fatal error
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { runBootstrap } from "./bootstrap/bootstrap.js";
 import { resolveSSHKey } from "./resolve-ssh-key.js";
-import { workspaceYamlPath, featuresRoot, taskYamlAbsPath, taskBranchName } from "./paths.js";
+import { workspaceYamlPath, taskYamlAbsPath, taskBranchName } from "./paths.js";
 import { findEligibleTasks } from "./eligibility/match.js";
 import { claimTask } from "./claim/claim-task.js";
 import { openWorkspacePr, parseGitHubCoords } from "./claim/open-workspace-pr.js";
@@ -113,20 +113,6 @@ function loadWorkspaceModelPolicy(workspaceRoot: string): ModelPolicy {
   };
 }
 
-/**
- * Find the feature directory that owns a given task ID by scanning
- * docs/features/<featureId>/tasks/<taskId>.yaml.
- */
-function findFeatureId(workspaceRoot: string, taskId: string): string | null {
-  const featuresDir = featuresRoot(workspaceRoot);
-  if (!existsSync(featuresDir)) return null;
-  for (const featureId of readdirSync(featuresDir)) {
-    if (existsSync(taskYamlAbsPath(workspaceRoot, featureId, taskId))) {
-      return featureId;
-    }
-  }
-  return null;
-}
 
 /**
  * Parse the GitHub owner/repo and base branch for the management repo declared
@@ -244,13 +230,7 @@ async function main(): Promise<number> {
       }
 
       // Try each task in order until one is claimed.
-      for (const task of eligibleTasks) {
-        const featureId = findFeatureId(workspaceLocalPath, task.id);
-        if (!featureId) {
-          emit({ type: "task_feature_not_found", task_id: task.id });
-          continue;
-        }
-
+      for (const { task, featureId } of eligibleTasks) {
         // ── Claim ─────────────────────────────────────────────────────────────
         const claimResult = await claimTask({
           workspaceRoot: workspaceLocalPath,

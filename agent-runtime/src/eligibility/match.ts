@@ -164,6 +164,12 @@ function scanAllFeatures(workspaceRoot: string): FeatureTaskEntry[] {
 // Public API
 // ---------------------------------------------------------------------------
 
+/** A task that passed all eligibility criteria, with its owning feature ID. */
+export interface EligibleTask {
+  task: Task;
+  featureId: string;
+}
+
 /**
  * Find all tasks in the given workspace that this agent is eligible to claim.
  *
@@ -178,7 +184,7 @@ export function findEligibleTasks(
   agentConfig: AgentConfig,
   workspaceRoot: string,
   workflowRoot: string,
-): Task[] {
+): EligibleTask[] {
   // ── 1. Load workspace config ────────────────────────────────────────────
   const workspaceConfig = loadWorkspaceConfig(workspaceRoot);
 
@@ -220,7 +226,7 @@ export function findEligibleTasks(
   }
 
   // ── 5. Filter per feature ───────────────────────────────────────────────
-  const eligible: Task[] = [];
+  const eligible: EligibleTask[] = [];
 
   for (const [, featureEntries] of byFeature) {
     // Build done-set for this feature
@@ -254,13 +260,13 @@ export function findEligibleTasks(
         continue;
       }
 
-      eligible.push(task);
+      eligible.push({ task, featureId });
     }
   }
 
   // ── 6. Deterministic ordering ───────────────────────────────────────────
   // Sort ascending by numeric task ID (T1 < T5 < T10).
-  eligible.sort((a, b) => taskNumericId(a.id) - taskNumericId(b.id));
+  eligible.sort((a, b) => taskNumericId(a.task.id) - taskNumericId(b.task.id));
 
   return eligible;
 }

@@ -26,6 +26,7 @@ import { parse as parseYaml, stringify as yamlStringify } from "yaml";
 
 import { runBootstrap } from "../../src/bootstrap/bootstrap.js";
 import { findEligibleTasks } from "../../src/eligibility/match.js";
+import type { EligibleTask } from "../../src/eligibility/match.js";
 import { claimTask } from "../../src/claim/claim-task.js";
 import { runClaude } from "../../src/loop/run-claude.js";
 import type { Task } from "../../src/types/task.js";
@@ -240,7 +241,7 @@ describe("agent-runtime integration", () => {
     const events: string[] = [];
     const originalLog = console.log.bind(console);
     console.log = (msg: string) => { events.push(msg); };
-    let eligible: Task[];
+    let eligible: EligibleTask[];
     try {
       eligible = findEligibleTasks(agentConfig, workspaceRoot, workflowRoot);
     } finally {
